@@ -1,0 +1,123 @@
+# 需求文档一致性门禁
+#
+# 放置位置: .github/workflows/requirements-check.yml
+# 使用前必须替换三处（SKILL_DIR 保持占位值会让第一步直接失败，这是故意的——
+# 静默跳过校验比报错危险）:
+#   1. DOC_DIR    —— 需求文档目录
+#   2. SKILL_DIR  —— 本技能包在你仓库中的路径（脚本来源）
+#   3. paths      —— 触发路径过滤，与 DOC_DIR 保持一致
+#
+# 本技能不绑定任何托管平台。此文件是 GitHub Actions 的一种接法，
+# 换 GitLab CI / Jenkins / 本地钩子时，照搬命令与退出码语义即可：
+#   validate_requirements.py 退出 1 = 有 ERROR，--strict 下 WARN 亦计入
+#   impact_analysis.py       退出 1 = 有未同步文档（需 --fail-on-unsynced）
+
+name: 需求文档一致性检查
+
+on:
+  pull_request:
+    paths:
+      - '需求文档/**'
+      - '.github/workflows/requirements-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - '需求文档/**'
+
+env:
+  DOC_DIR: 需求文档
+  SKILL_DIR: REPLACE_WITH_SKILL_PATH/requirement-decomposition
+
+jobs:
+  validate:
+    name: 结构与一致性校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 检查模板占位符已替换
+        run: |
+          case "$SKILL_DIR" in REPLACE_WITH_*)
+            echo "::error::SKILL_DIR 仍是模板占位值，请改成技能包在本仓库中的实际路径"
+            exit 1 ;;
+          esac
+          test -f "$SKILL_DIR/scripts/validate_requirements.py" || {
+            echo "::error::在 $SKILL_DIR 下找不到校验脚本"; exit 1; }
+
+      - name: 全量校验
+        run: |
+          python3 "$SKILL_DIR/scripts/validate_requirements.py" "$DOC_DIR" \
+            | tee validation-report.txt
+
+      - name: 生成 JSON 报告
+        if: always()
+        run: |
+          python3 "$SKILL_DIR/scripts/validate_requirements.py" "$DOC_DIR" \
+            --format json > validation-report.json || true
+
+      - name: 上传报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requirements-validation-report
+          path: |
+            validation-report.txt
+            validation-report.json
+
+  impact:
+    name: 变更影响分析
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 检查模板占位符已替换
+        run: |
+          case "$SKILL_DIR" in REPLACE_WITH_*)
+            echo "::error::SKILL_DIR 仍是模板占位值，请改成技能包在本仓库中的实际路径"
+            exit 1 ;;
+          esac
+
+      - name: 计算受影响文档
+        id: impact
+        run: |
+          git fetch origin ${{ github.base_ref }} --depth=50
+          python3 "$SKILL_DIR/scripts/impact_analysis.py" \
+            --dir "$DOC_DIR" \
+            --base "origin/${{ github.base_ref }}" \
+            --format markdown \
+            --fail-on-unsynced > impact-report.md || echo "unsynced=true" >> $GITHUB_OUTPUT
+          cat impact-report.md
+
+      - name: 评论到 PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('impact-report.md')) return;
+            const body = fs.readFileSync('impact-report.md', 'utf8');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+
+      - name: 存在未同步文档时阻断
+        if: steps.impact.outputs.unsynced == 'true'
+        run: |
+          echo "::error::存在受影响但未同步更新的需求文档，见 PR 评论中的影响分析报告"
+          exit 1

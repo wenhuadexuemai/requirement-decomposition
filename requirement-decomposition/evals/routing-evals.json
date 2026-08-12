@@ -1,0 +1,104 @@
+[
+  {
+    "id": "rd-01",
+    "prompt": "把这份需求评审会的纪要整理成正式需求文档，模块要拆清楚。",
+    "should_trigger": true,
+    "reason": "原始材料转结构化需求文档，本技能主场景"
+  },
+  {
+    "id": "rd-02",
+    "prompt": "这个系统需求太多了，一份文档写不下，帮我拆成模块化的文档结构。",
+    "should_trigger": true,
+    "reason": "需求量超出单文档承载，总分结构拆解"
+  },
+  {
+    "id": "rd-03",
+    "prompt": "帮我建需求跟踪矩阵，要能从需求反查模块和验收标准。",
+    "should_trigger": true,
+    "reason": "跟踪矩阵是本技能的固定产物之一"
+  },
+  {
+    "id": "rd-04",
+    "prompt": "先别急着展开，一次问我一个问题，把需求边界确认清楚再动手。",
+    "should_trigger": true,
+    "expected_mode": "skeleton-interview",
+    "reason": "显式要求单问题访谈，进入第 2 轮阻塞式协议"
+  },
+  {
+    "id": "rd-05",
+    "prompt": "接着昨天没问完的需求访谈继续，别把已经定了的又问一遍。",
+    "should_trigger": true,
+    "expected_mode": "skeleton-interview",
+    "reason": "恢复访谈会话，走 resume 协议"
+  },
+  {
+    "id": "rd-06",
+    "prompt": "改了库存模块的规则，看看还有哪些文档要跟着改。",
+    "should_trigger": true,
+    "reason": "变更影响分析，impact_analysis.py 场景"
+  },
+  {
+    "id": "rd-07",
+    "prompt": "给用户表加个手机号校验，就这一条，怎么写需求？",
+    "should_trigger": false,
+    "route_to": "none",
+    "reason": "三五条需求的小改动，一份文档更省事；SKILL.md 不适用条款"
+  },
+  {
+    "id": "rd-08",
+    "prompt": "设计一下这套系统的技术架构，数据库选型和分层怎么做？",
+    "should_trigger": false,
+    "route_to": "architecture-design",
+    "reason": "技术方案设计属于架构文档，不是需求文档"
+  },
+  {
+    "id": "rd-09",
+    "prompt": "我们次留只有 20%，帮我诊断问题出在哪、怎么提升。",
+    "should_trigger": false,
+    "route_to": "product-strategy",
+    "reason": "产品策略与留存增长咨询，不产出需求文档网络"
+  },
+  {
+    "id": "rd-10",
+    "prompt": "调研一下在线教育赛道的竞品格局，要有引用来源。",
+    "should_trigger": false,
+    "route_to": "market-research",
+    "reason": "多源引用的市场调研，拿到结论后才回来写需求"
+  },
+  {
+    "id": "rd-11",
+    "prompt": "按这份需求文档把订单创建的接口实现出来。",
+    "should_trigger": false,
+    "route_to": "implementation",
+    "reason": "代码实现，需求文档交付即止"
+  },
+  {
+    "id": "rd-12",
+    "prompt": "写一份社区团购小程序的 PRD，目标用户是小区宝妈。",
+    "should_trigger": false,
+    "boundary": true,
+    "route_to": "single-document",
+    "reason": "两可：单份 PRD 创作是一份文档的活；需求量大到必须拆成文档网络时才归本技能"
+  },
+  {
+    "id": "rd-13",
+    "prompt": "这几十个模块的需求文档，帮我查一遍 ID 引用和 NFR 有没有漏。",
+    "should_trigger": true,
+    "reason": "一致性校验，validate_requirements.py 场景"
+  },
+  {
+    "id": "rd-14",
+    "prompt": "需求已经拆完了，把每个模块的接口出参字段定义补齐。",
+    "should_trigger": false,
+    "boundary": true,
+    "route_to": "architecture-design",
+    "reason": "两可：字段的业务含义与取值约束归本技能第 3 轮的数据需求节；接口出参的技术契约（类型、协议、分页结构）归架构设计。混在一起时本技能只主导业务侧，技术契约声明移交"
+  },
+  {
+    "id": "rd-15",
+    "prompt": "把这套需求文档翻译成英文交付给外包团队。",
+    "should_trigger": false,
+    "route_to": "none",
+    "reason": "对既有产物做语言转换，不涉及拆分与一致性推导；本技能的护栏基于中文表头与章节关键词，翻译后会全线失效"
+  }
+]

@@ -1,0 +1,42 @@
+# 需求文档提交前校验
+#
+# 放置位置: 仓库根目录 .pre-commit-config.yaml
+# 安装:     pip install pre-commit && pre-commit install
+# 手动全量: pre-commit run --all-files
+#
+# 使用前把三处 REPLACE_WITH_SKILL_PATH 换成技能包在本仓库中的实际路径，
+# 把「需求文档」换成实际文档目录名（entry 与 files 两处都要改）。
+#
+# 不用 pre-commit 时，直接把 entry 里的命令接进任何钩子机制即可，
+# 退出码语义一致：0 通过，1 有 ERROR，2 用法错误。
+
+repos:
+  - repo: local
+    hooks:
+      - id: requirements-validate
+        name: 需求文档一致性校验
+        language: system
+        files: ^需求文档/.*\.md$
+        pass_filenames: false
+        entry: >
+          python3 REPLACE_WITH_SKILL_PATH/requirement-decomposition/scripts/validate_requirements.py
+          需求文档
+
+      - id: requirements-nfr-coverage
+        name: NFR 覆盖率快检
+        language: system
+        files: ^需求文档/modules/.*\.md$
+        pass_filenames: false
+        entry: >
+          python3 REPLACE_WITH_SKILL_PATH/requirement-decomposition/scripts/validate_requirements.py
+          需求文档 --only C04
+
+      - id: requirements-impact
+        name: 变更影响分析
+        language: system
+        files: ^需求文档/.*\.md$
+        pass_filenames: false
+        stages: [pre-push]
+        entry: >
+          python3 REPLACE_WITH_SKILL_PATH/requirement-decomposition/scripts/impact_analysis.py
+          --dir 需求文档 --base origin/main --fail-on-unsynced

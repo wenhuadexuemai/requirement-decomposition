@@ -1,0 +1,44 @@
+# 白名单策略：先忽略全部，再逐项放行
+
+/*
+
+!/requirement-decomposition/
+!/README.md
+!/CHANGELOG.md
+!/LICENSE
+!/.gitignore
+
+# 技能包内部的噪声
+
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+
+Thumbs.db
+Desktop.ini
+.directory
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 跑自举冒烟的中间文件，不是源码
+*.log
+*.tmp
+skeleton.json
+interview-state.json
+transcript.json
+需求文档/
+validation-report.txt
+validation-report.json
+impact-report.md

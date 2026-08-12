@@ -1,0 +1,233 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:skill:requirement-decomposition:interview-state:1.0.0",
+  "title": "骨架访谈状态",
+  "description": "requirement-decomposition 第 2 轮访谈的可恢复状态契约。字段语义见 references/interview-protocol.md。$id 用 URN 而非 http URL：本技能不依赖任何外部站点，schema 不需要、也不应该被网络解析。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "session_id",
+    "skill_version",
+    "mode",
+    "status",
+    "evidence",
+    "decision_log",
+    "unresolved_questions",
+    "completion_gate",
+    "skeleton",
+    "hard_stop"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "会话唯一标识，恢复时用于比对"
+    },
+    "skill_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "产生该状态的技能版本，需与 SKILL.md frontmatter 的 version 一致"
+    },
+    "mode": {
+      "const": "skeleton-interview"
+    },
+    "status": {
+      "enum": [
+        "evidence-gathering",
+        "interviewing",
+        "ready-for-skeleton",
+        "awaiting-approval",
+        "approved",
+        "stopped"
+      ]
+    },
+    "next_question_id": {
+      "type": ["string", "null"],
+      "description": "唯一的下一个决策 ID。恢复时从此处继续；无待问决策时为 null"
+    },
+    "evidence": {
+      "type": "array",
+      "description": "已通读的原始材料。无可读材料时用单条 evidence_unavailable 记录原因",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "summary"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "相对路径；不可用时填 evidence_unavailable"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^([a-f0-9]{64}|evidence_unavailable)$"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "description": "一句话结论，或材料不可用的原因"
+          },
+          "kind": {
+            "enum": ["fact", "user_decision", "assumption"],
+            "description": "信息性质。材料原文为 fact，用户拍板为 user_decision，推断为 assumption"
+          }
+        }
+      }
+    },
+    "decision_log": {
+      "type": "array",
+      "description": "已定下的决策，一条一项",
+      "items": {
+        "type": "object",
+        "required": ["id", "decision", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "question_id": {
+            "type": "string",
+            "description": "由哪个提问回合产生；证据直接解决的决策可省略"
+          },
+          "decision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "source": {
+            "enum": ["user", "evidence", "assumption"]
+          },
+          "affects": {
+            "type": "array",
+            "description": "受该决策影响的 ID，如 MOD-0001、NFR-0003",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "unresolved_questions": {
+      "type": "array",
+      "description": "尚未解决的决策。blocking 为真时完成门禁不得通过",
+      "items": {
+        "type": "object",
+        "required": ["id", "question", "blocking"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blocking": {
+            "type": "boolean",
+            "description": "会改变模块边界、数据写主或依赖强度的为真"
+          },
+          "recommendation": {
+            "type": "object",
+            "required": ["answer", "reason"],
+            "additionalProperties": false,
+            "properties": {
+              "answer": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "category": {
+            "enum": [
+              "module_boundary",
+              "data_ownership",
+              "relation_strength",
+              "nfr_threshold",
+              "glossary",
+              "scenario",
+              "scope",
+              "other"
+            ]
+          }
+        }
+      }
+    },
+    "completion_gate": {
+      "type": "object",
+      "description": "八项门禁。status 进入 ready-for-skeleton 及之后时必须全为 true",
+      "required": [
+        "module_boundaries",
+        "data_ownership",
+        "relations",
+        "nfr_thresholds",
+        "glossary_seed",
+        "scenarios",
+        "scope_non_goals",
+        "open_questions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "module_boundaries": { "type": "boolean" },
+        "data_ownership": { "type": "boolean" },
+        "relations": { "type": "boolean" },
+        "nfr_thresholds": { "type": "boolean" },
+        "glossary_seed": { "type": "boolean" },
+        "scenarios": { "type": "boolean" },
+        "scope_non_goals": { "type": "boolean" },
+        "open_questions": { "type": "boolean" }
+      }
+    },
+    "skeleton": {
+      "type": "object",
+      "description": "骨架产物状态",
+      "required": ["approved_by_user"],
+      "additionalProperties": false,
+      "properties": {
+        "draft_path": {
+          "type": ["string", "null"],
+          "description": "骨架 JSON 草稿路径"
+        },
+        "final_path": {
+          "type": ["string", "null"],
+          "description": "获批后的骨架 JSON 路径。status 为 approved/stopped 时必填"
+        },
+        "approved_by_user": {
+          "type": "boolean",
+          "description": "只有用户明确批准才可置真。沉默不算批准"
+        },
+        "module_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "hard_stop": {
+      "type": "object",
+      "description": "批准前的禁止事项开关",
+      "required": ["expansion_allowed"],
+      "additionalProperties": false,
+      "properties": {
+        "expansion_allowed": {
+          "type": "boolean",
+          "description": "是否允许运行 scaffold_docs.py 展开目录。未获批准时必须为 false"
+        },
+        "implementation_allowed": {
+          "const": false,
+          "description": "恒为 false。本技能任何阶段都不产出实现代码与架构设计"
+        }
+      }
+    }
+  }
+}
