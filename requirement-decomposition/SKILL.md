@@ -196,7 +196,7 @@ python3 scripts/validate_requirements.py ./需求文档 --only C15
 | `assets/templates/` | 八份空白模板，脚手架的输入源 |
 | `assets/ci/` | CI 接入模板（用前替换 `REPLACE_WITH_SKILL_PATH`） |
 | `evals/routing-evals.json` | 改动 description 后跑 `scripts/run_routing_evals.py` 核对触发边界 |
-| `../CHANGELOG.md` | 查某个行为是哪一版引入的、当初为什么这么定 |
+| `CHANGELOG.md` | 查某个行为是哪一版引入的、当初为什么这么定 |
 
 七个脚本只依赖 Python 标准库，不访问网络、不绑定托管平台：`scaffold_docs.py` 展开目录，`validate_requirements.py` 十六项检查，`impact_analysis.py` 变更影响分析，`validate_interview.py` 访谈契约校验，`run_routing_evals.py` 触发用例结构校验，`manual_review_checklist.py` 列出脚本管不到、需人工过的复核项，`self_check.py` 技能包自身的内部契约自检。
 

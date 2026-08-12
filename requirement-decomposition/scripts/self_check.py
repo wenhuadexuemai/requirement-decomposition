@@ -141,9 +141,8 @@ def check_version(r: Result) -> None:
         r.error("S01", f"validate_interview.py 的 EXAMPLE_STATE.skill_version"
                        f"「{sample}」与 SKILL.md 的 version「{version}」不一致")
 
-    # CHANGELOG 在仓库根（开源标准位置），不在技能包内
-    repo_root = os.path.dirname(SKILL_ROOT)
-    changelog = os.path.join(repo_root, "CHANGELOG.md")
+    # CHANGELOG 随技能包分发（打进 zip），在技能包内
+    changelog = os.path.join(SKILL_ROOT, "CHANGELOG.md")
     if not os.path.exists(changelog):
         r.warn("S01", "缺少 CHANGELOG.md，版本演进无处可查")
         return

@@ -164,4 +164,4 @@ MIT 许可，详见 [LICENSE](./LICENSE)。
 
 ## 版本
 
-版本号遵循语义化版本，变更记录见 [CHANGELOG.md](./CHANGELOG.md)。当前版本见 `requirement-decomposition/SKILL.md` frontmatter。
+版本号遵循语义化版本，变更记录见 [CHANGELOG.md](./requirement-decomposition/CHANGELOG.md)。当前版本见 `requirement-decomposition/SKILL.md` frontmatter。
