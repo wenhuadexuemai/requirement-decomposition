@@ -1,6 +1,6 @@
 # 变更记录
 
-本文件记录 requirement-decomposition 技能包的所有重要变更。格式基于 Keep a Changelog 1.1.0，版本号遵循语义化版本。
+本文件仅记录 requirement-decomposition 技能包的重要变更（包内文件与影响包行为）。格式基于 Keep a Changelog 1.1.0，版本号遵循语义化版本。
 
 版本号与 `SKILL.md` 的 `version`、`validate_interview.py` 的 `EXAMPLE_STATE.skill_version` 三处保持一致，由 S01 核对。
 
@@ -18,17 +18,14 @@
 
 ### 变更
 
-- CHANGELOG 从仓库根移入技能包目录（requirement-decomposition/），使其随技能包打包分发。同步 self_check.py S01 的定位路径、SKILL.md 引用、README.md 链接。
+- CHANGELOG 从仓库根移入技能包目录（requirement-decomposition/），使其随技能包打包分发。同步 self_check.py S01 的定位路径与 SKILL.md 引用。
 
 ## [1.3.2] - 2026-08-12
 
 ### 变更
 
 - CHANGELOG 改写为 Keep a Changelog 1.1.0 格式，移至仓库根。S01 适配方括号版本号正则与仓库根路径。
-- 新增 README（仓库根）与 LICENSE（MIT）。.gitignore 放行仓库根开源文件。
 - 四个脚本的注释精简：删除类型注解复述、代码重述、重复解释，保留解释 WHY 的注释。
-- .gitignore 精简：删除冗余标签与策略长解释，70 行 -> 44 行。
-- README 架构图从 ASCII 转为 Mermaid。
 
 ## [1.3.1] - 2026-08-11
 
