@@ -1680,6 +1680,27 @@ def check_doc_status(c: Corpus) -> List[Issue]:
                                  f"或补打一次 --snapshot",
                                  lineno))
 
+        # 反向：当前版本已在基线里、状态却仍挂「已评审」——打了基线没转冻结，
+        # 是里程碑扫尾漏执行状态转移的确定信号。只对「已评审」触发：草稿是过程态；
+        # 长期挂着不进基线同样是流程异味，这条 WARN 就是用来烦人的，维护期日常
+        # 卫生检查用非 strict。
+        for rel, (raw, lineno) in sorted(c.doc_status.items()):
+            if raw != "已评审":
+                continue
+            versions = recorded.get(os.path.basename(rel))
+            if not versions:
+                continue
+            declared = c.doc_versions.get(rel)
+            if declared is None:
+                continue
+            cur = declared[0].strip().upper()
+            if parse_doc_version(cur) and cur in versions:
+                out.append(Issue("WARN", "C15", rel,
+                                 f"当前版本 {declared[0].strip()} 已在基线记录里，"
+                                 f"状态却仍挂「已评审」——打了基线没转「已冻结」。"
+                                 f"补上状态转移（文档头部与索引表两处一起改），"
+                                 f"或确需改动就先退回「草稿」", lineno))
+
     # 4) 全库状态分布。判 INFO，与 C11 的版本分布提示对齐。
     dist: Dict[str, int] = {}
     for rel, (raw, _) in c.doc_status.items():
@@ -1796,6 +1817,19 @@ def check_terminal_refs(c: Corpus) -> List[Issue]:
                                      f"但仍出现在与 {other or '?'} 的关系中。"
                                      f"已废弃模块不应有活跃依赖声明--"
                                      f"要么模块没真废弃，要么该清理这条关系"))
+
+    # --- P7: ADR 长期挂「提议」 ---
+    # 与文档残留草稿同构的未闭环：决策没到达「已采纳」，全库终稿就缺一角。
+    # WARN 级容忍过程态（第 4 轮补写的 ADR 本就先挂提议），--strict 定稿卡死。
+    for doc in c.decisions:
+        status = c.doc_status.get(doc.rel)
+        if not status:
+            continue
+        raw, lineno = status
+        if raw.strip() == "提议":
+            out.append(Issue("WARN", "C16", doc.rel,
+                             f"决策状态仍是「提议」。过程态合法，定稿前须给出结论："
+                             f"已采纳，或终态（被取代/已废弃）", lineno))
     return out
 
 
