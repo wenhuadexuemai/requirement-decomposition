@@ -1887,7 +1887,9 @@ def render_snapshot(corpus: Corpus, review_date: str) -> Tuple[str, List[str]]:
     # 要求它已评审是拿错词表卡人。它照常进基线表，只是不进门禁清单。
     adr_rels = {d.rel for d in corpus.decisions}
     # 纵表：一行一份文档。横表在文档数上去之后会宽到没法读。
-    lines = [f"## {review_date} 基线", "",
+    # 首元素是空串：输出会被 `>>` 追加进既有文档，标题不带前导空行的话，
+    # 文件末尾没空行时新基线就贴在上一节最后一行上，调用方每次都得手工补。
+    lines = ["", f"## {review_date} 基线", "",
              "| 文档 | 版本 | 状态 |", "|------|------|------|"]
     unreviewed: List[str] = []
     for rel in rels:

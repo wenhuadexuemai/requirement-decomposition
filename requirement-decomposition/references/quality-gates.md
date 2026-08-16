@@ -1,6 +1,6 @@
 # 质量护栏
 
-护栏由八个脚本承载，都在 `scripts/` 下，只依赖 Python 标准库。
+护栏由九个脚本承载，都在 `scripts/` 下，只依赖 Python 标准库。
 
 护栏分三层，别混：**六个管技能产出的文档**，`run_routing_evals.py` 管技能包自身的触发用例，`self_check.py` 管技能包自己。写需求文档时跑第一层，改这个技能包时跑后两个。
 
@@ -13,9 +13,10 @@
 | `run_routing_evals.py` | 触发边界用例结构校验 | 改动 SKILL.md 的 description 后 |
 | `manual_review_checklist.py` | 列出脚本管不到、需人工过的复核项 | 定稿前人工复核 |
 | `build_view.py` | 按视图配方把多个模块的指定章节拼成聚合视图 | 人读集中评审时 |
+| `pipeline_status.py` | 流水线档位判定与下一步建议（仪表不是门禁，退出码只有 0/2） | 每次调用技能时、每轮开始、每次汇报末尾 |
 | `self_check.py` | 技能包自身的内部契约自检 | 改动本技能包任何文件后 |
 
-八个脚本都不依赖外部网络、托管平台或第三方库。`impact_analysis.py` 默认从 git 取变更集，但 git 只是取变更集的一种方式，`--changed-files` 可绕开。
+九个脚本都不依赖外部网络、托管平台或第三方库。`impact_analysis.py` 默认从 git 取变更集，但 git 只是取变更集的一种方式，`--changed-files` 可绕开。
 
 ## 〇、访谈契约
 
@@ -275,7 +276,7 @@ python3 scripts/run_routing_evals.py --emit-prompts   # 导出人工复核清单
 前面四节管的是技能产出的文档。这一节管技能包自己。
 
 ```bash
-python3 scripts/self_check.py                 # 全部二十项
+python3 scripts/self_check.py                 # 全部二十一项
 python3 scripts/self_check.py --only S03,S07  # 只跑指定项
 python3 scripts/self_check.py --list          # 列出检查项
 python3 scripts/self_check.py --format json
@@ -307,6 +308,7 @@ python3 scripts/self_check.py --format json
 | S18 | 取值词表人读版与机器版一致 | 置信度（§6 ↔ `VALID_CONFIDENCE`）、依赖强度（§7 ↔ `VALID_STRENGTH`）、NFR 判定（templates ↔ `VALID_NFR_VERDICT`）、ID 前缀（§4 ↔ `ID_PREFIXES`）四处取值漂移。此前只有 S04 守关系类型、S17 守文档状态，这些无人守 |
 | S19 | 聚合视图脚本冒烟 | build_view 在空白骨架上退出码非 0、输出缺模块标题或章节，或对不存在的模块没退 2 |
 | S20 | 人工自查词表与 §2.2 一致 | MANUAL_WORDS（manual_review_checklist）与 writing-style §2.2 两份副本漂移 |
+| S21 | 流水线档位判定冒烟 | 合成状态链 L0→L1→L2→L3→L10→L8→L7 有任一判定错；访谈状态文件损坏时崩溃或无降级提示；GEARS 映射表与 SKILL.md 流水线协议节的档位表漂移 |
 
 S07、S13、S14 会在临时目录跑一遍完整的脚手架展开与校验或 git 操作，比其余各项慢几秒。
 

@@ -12,7 +12,7 @@
 |------|----------------|
 | 需求文档越写越长没人读 | 总分结构：综述管全局，模块只写自己的事，通过 ID 互引 |
 | 改一处边界要返工整批文档 | 骨架先定，访谈阻塞确认后才展开；骨架错了只改骨架 |
-| ID 悬空、链接断裂没人查 | 八个脚本做机器护栏，十六项一致性检查 |
+| ID 悬空、链接断裂没人查 | 九个脚本做机器护栏，十六项一致性检查 |
 | 术语混用、同义替换 | 术语表禁用同义词列，C07 全文扫描 |
 | 版本号各写各的 | C11 卡三段号 + 变更记录一致 |
 | 文档状态没人管 | C15 状态机 + `--snapshot` 基线门禁 |
@@ -21,11 +21,12 @@
 | 流程走完文档还停在草稿 | 里程碑评审事件：背书集中一次完成，收敛于全库终稿 |
 | 评审结论交付后没人记得 | 批准/打回落盘进版本快照的「评审记录」节 |
 | 改了一份不知道波及谁 | 关系矩阵邻接传播，受影响文档全部列出 |
+| 不知道进行到哪一步、下一步做什么 | `pipeline_status.py` 判定流水线档位，横幅报告进度与下一步 |
 
 ## 环境要求
 
 - Python 3.11+
-- 八个脚本只依赖 Python 标准库，无需安装第三方包
+- 九个脚本只依赖 Python 标准库，无需安装第三方包
 
 ## 快速开始
 
@@ -58,6 +59,7 @@ python3 $S/impact_analysis.py --dir ./需求文档 --base origin/main --fail-on-
 # 复核确认无需改动的受影响文档：--cleared 清单.txt（路径或 MOD/UC/ADR 的 ID）
 python3 $S/self_check.py                                   # 技能包内部契约自检
 python3 $S/validate_interview.py --print-example           # 访谈状态样例
+python3 $S/pipeline_status.py --dir ./需求文档              # 流水线档位与下一步
 ```
 
 ## 六轮工作流
@@ -83,7 +85,7 @@ python3 $S/validate_interview.py --print-example           # 访谈状态样例
 
 机器强制点各有分工：`--strict` 守评审入口，`--snapshot` 守基线入口，`impact_analysis` 的状态未回退检测守退回，C15 反向盯「进了基线却没转已冻结」，C16 盯 ADR 长期挂「提议」。
 
-## 八个脚本
+## 九个脚本
 
 | 脚本 | 职责 |
 |------|------|
@@ -94,7 +96,8 @@ python3 $S/validate_interview.py --print-example           # 访谈状态样例
 | `manual_review_checklist.py` | 列出脚本管不到、需人工过的复核项 |
 | `run_routing_evals.py` | 触发边界用例校验 |
 | `build_view.py` | 按视图配方把多个模块的指定章节拼成聚合视图 |
-| `self_check.py` | S01~S20 技能包内部契约自检 |
+| `pipeline_status.py` | 流水线档位判定：项目走到哪一步、下一步是什么 |
+| `self_check.py` | S01~S21 技能包内部契约自检 |
 
 ## 十六项检查
 
@@ -117,7 +120,7 @@ python3 $S/validate_interview.py --print-example           # 访谈状态样例
 | C15 | 文档状态一致性（含基线反向核对） |
 | C16 | 终态文档引用与决策结论完整性 |
 
-另有 S01~S20 二十项内部契约自检，管住模板、脚手架、校验器三层的一致性。详见 `requirement-decomposition/references/quality-gates.md`。
+另有 S01~S21 二十一项内部契约自检，管住模板、脚手架、校验器三层的一致性。详见 `requirement-decomposition/references/quality-gates.md`。
 
 ## 架构：三层契约
 
@@ -171,7 +174,7 @@ requirement-decomposition/
 │   └── writing-style.md
 ├── schemas/
 │   └── interview-state.schema.json
-├── scripts/                  # 八个 Python 脚本
+├── scripts/                  # 九个 Python 脚本
 └── evals/
     └── routing-evals.json
 ```

@@ -58,6 +58,7 @@ CHECK_TITLES = {
     "S18": "取值词表人读版与机器版一致",
     "S19": "聚合视图脚本冒烟",
     "S20": "人工自查词表与 §2.2 一致",
+    "S21": "流水线档位判定冒烟",
 }
 
 
@@ -516,6 +517,106 @@ def check_manual_words(r: Result) -> None:
         r.error("S20", f"§2.2 人工自查栏列了但 MANUAL_WORDS 没有：{only_doc}")
     if only_script:
         r.error("S20", f"MANUAL_WORDS 里有但 §2.2 人工自查栏未列：{only_script}")
+
+
+# --------------------------------------------------------------------------
+# S21 流水线档位判定冒烟
+# --------------------------------------------------------------------------
+
+def check_pipeline_smoke(r: Result) -> None:
+    """pipeline_status 冒烟：在同一临时目录里顺序合成七个状态，逐档断言。
+
+    档位判定错了不会让任何门禁报错——它只决定「下一步建议」指哪条路，是纯文本
+    drift 的无人区。这里固化：L0→L1→L2→L3→L10→L8→L7 的状态演进链、损坏状态
+    文件的降级负例、以及 GEARS 映射表与 SKILL.md 流水线协议节的一致性（单一
+    来源在脚本，SKILL.md 是抄本）。
+    """
+    from pipeline_status import GEARS
+    skill = read(os.path.join(SKILL_ROOT, "SKILL.md"))
+    for code, (name, round_, _, _) in sorted(GEARS.items()):
+        if f"| {code} | {name} |" not in skill:
+            r.error("S21", f"档位「| {code} | {name} |」未出现在 SKILL.md 流水线协议节")
+
+    py = sys.executable
+    script = os.path.join(SCRIPT_DIR, "pipeline_status.py")
+    tmp = tempfile.mkdtemp(prefix="rd-pipeline-")
+
+    def run():
+        proc = subprocess.run([py, script, "--dir", tmp, "--format", "json"],
+                              capture_output=True, text=True)
+        if proc.returncode != 0:
+            return None, proc.stderr[:150]
+        return json.loads(proc.stdout), ""
+
+    def expect(gear: str, label: str) -> None:
+        got, err = run()
+        if got is None:
+            r.error("S21", f"{label}: 运行失败 {err}")
+        elif got["gear"] != gear:
+            r.error("S21", f"{label}: 期望 {gear}，实际 {got['gear']}（依据: {got['evidence'][:2]}）")
+
+    try:
+        expect("L0", "空目录")
+
+        state = {"schema_version": "1.0.0", "session_id": "s21", "skill_version": "0.0.0",
+                 "mode": "skeleton-interview", "status": "interviewing",
+                 "next_question_id": "Q-01"}
+        with open(os.path.join(tmp, "interview-state.json"), "w", encoding="utf-8") as f:
+            json.dump(state, f)
+        expect("L1", "访谈中")
+
+        state["status"] = "approved"
+        with open(os.path.join(tmp, "interview-state.json"), "w", encoding="utf-8") as f:
+            json.dump(state, f)
+        expect("L2", "已批准未展开")
+
+        proc = subprocess.run([py, os.path.join(SCRIPT_DIR, "scaffold_docs.py"),
+                               "--print-schema"], capture_output=True, text=True)
+        skel = os.path.join(tmp, "skeleton.json")
+        with open(skel, "w", encoding="utf-8") as f:
+            f.write(proc.stdout)
+        subprocess.run([py, os.path.join(SCRIPT_DIR, "scaffold_docs.py"),
+                        skel, "-o", os.path.join(tmp, "需求文档")],
+                       capture_output=True, check=True)
+        expect("L3", "空白骨架")
+
+        proc = subprocess.run([py, os.path.join(SCRIPT_DIR, "validate_requirements.py"),
+                               os.path.join(tmp, "需求文档"), "--snapshot", "2026-08-16"],
+                              capture_output=True, text=True)
+        with open(os.path.join(tmp, "需求文档", "04-版本快照.md"), "a", encoding="utf-8") as f:
+            f.write(proc.stdout)
+        expect("L10", "有基线有草稿")
+
+        for dirpath, _, files in os.walk(os.path.join(tmp, "需求文档")):
+            for fn in files:
+                if not fn.endswith(".md") or fn.startswith(("04-", "ADR")):
+                    continue
+                fp = os.path.join(dirpath, fn)
+                body = read(fp)
+                flipped = re.sub(r"(\|\s*状态\s*\|\s*)草稿(\s*\|)",
+                                 r"\g<1>已评审\g<2>", body, count=1)
+                if flipped != body:
+                    with open(fp, "w", encoding="utf-8") as f:
+                        f.write(flipped)
+        expect("L8", "全库已评审未冻结")
+
+        snap = os.path.join(tmp, "需求文档", "04-版本快照.md")
+        body = read(snap)
+        body = body.replace("| —— | —— | —— | —— |\n\n## 5. 变更记录",
+                            "| MOD-0001 | 打回 | 验收标准不可测试 | 2026-08-16 |\n\n## 5. 变更记录", 1)
+        with open(snap, "w", encoding="utf-8") as f:
+            f.write(body)
+        expect("L7", "打回未平")
+
+        with open(os.path.join(tmp, "interview-state.json"), "w", encoding="utf-8") as f:
+            f.write("{ 这不是合法 JSON")
+        got, err = run()
+        if got is None:
+            r.error("S21", f"损坏状态文件应降级不崩溃，实际运行失败 {err}")
+        elif not any("不可读" in n for n in got["notes"]):
+            r.error("S21", f"损坏状态文件未给出降级提示: {got['notes']}")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # --------------------------------------------------------------------------
@@ -1470,6 +1571,7 @@ SELF_CHECKS: Dict[str, Callable[[Result], None]] = {
     "S18": check_enumeration_tables,
     "S19": check_view_smoke,
     "S20": check_manual_words,
+    "S21": check_pipeline_smoke,
 }
 
 
