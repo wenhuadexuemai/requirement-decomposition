@@ -160,6 +160,18 @@
               "scope",
               "other"
             ]
+          },
+          "owner": {
+            "type": "string",
+            "description": "跟进该未决项的负责人"
+          },
+          "needed_by": {
+            "type": "string",
+            "description": "需要解决的期限（版本节点或日期）"
+          },
+          "resolves_when": {
+            "type": "string",
+            "description": "可判定的关闭触发条件：满足什么条件这项就算解决"
           }
         }
       }

@@ -222,6 +222,7 @@ RELATION_MIRROR = {
     "约束": "受约束于", "受约束于": "约束",
     "事件触发": "被触发", "被触发": "事件触发",
     "回退": "补偿对象", "补偿对象": "回退",
+    "泛化": "特化", "特化": "泛化",
     "关联": "关联", "互斥": "互斥", "数据共享": "数据共享",
 }
 
@@ -255,7 +256,7 @@ def build_trace_rows(modules: List[Dict[str, Any]]) -> str:
     rows = []
     for m in modules:
         mid = cell(m.get("id"))
-        seq = mid.split("-")[1] if "-" in mid else "0001"
+        seq = "-".join(mid.split("-")[1:]) if "-" in mid else "0001"  # 取完整序号段（含子模块后缀 0003-A），避免子模块与父模块的 AC/跟踪矩阵行撞号
         rows.append(
             "| {0}-REQ-0001 | {0} | [待确认] | [待确认] | Must | [待确认: 原始文档 + 章节号] "
             "| —— | AC-{1}-0001 | {2} | —— |".format(mid, seq, cell(m.get("version"), "V1")))
@@ -358,7 +359,7 @@ def scaffold(skeleton: Dict[str, Any], output: str, force: bool) -> int:
     for m in modules:
         mid = str(m["id"]).strip()
         name = str(m.get("name") or "").strip() or "[待确认]"
-        seq = mid.split("-")[1] if "-" in mid else "0001"
+        seq = "-".join(mid.split("-")[1:]) if "-" in mid else "0001"  # 取完整序号段（含子模块后缀 0003-A），避免子模块与父模块的 AC/跟踪矩阵行撞号
         content = render(module_tpl, dict(common, **{
             "MOD_ID": mid,
             "MOD_NAME": name,

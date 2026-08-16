@@ -47,6 +47,12 @@ GATED_STATUSES = {"ready-for-skeleton", "awaiting-approval", "approved", "stoppe
 FINAL_STATUSES = {"approved", "stopped"}
 VALID_STATUSES = {"evidence-gathering", "interviewing"} | GATED_STATUSES
 
+# evidence.kind 与 unresolved_questions.category 的取值词表。schema 里这两个枚举是
+# 纯字面约束（schema 不被脚本读取），这里放机器版并校验取值，S02 核对两处一致。
+EVIDENCE_KINDS = {"fact", "user_decision", "assumption"}
+QUESTION_CATEGORIES = {"module_boundary", "data_ownership", "relation_strength",
+                       "nfr_threshold", "glossary", "scenario", "scope", "other"}
+
 # 门禁字段不接受占位话术
 PLACEHOLDER_RE = re.compile(r"\bTBD\b|\bTODO\b|待补充|后续确认|\[待确认", re.IGNORECASE)
 
@@ -60,7 +66,7 @@ SCHEMA_VERSION = "1.0.0"
 EXAMPLE_STATE = {
     "schema_version": SCHEMA_VERSION,
     "session_id": "sess-2026-08-08-order",
-    "skill_version": "1.3.3",
+    "skill_version": "1.4.0",
     "mode": "skeleton-interview",
     "status": "interviewing",
     "next_question_id": "Q-02",
@@ -176,6 +182,8 @@ def validate_state(state: Any, errors: List[str]) -> None:
                 errors.append(f"evidence[{i}] 的 sha256 非法（需 64 位十六进制或 evidence_unavailable）")
             if not str(item.get("path", "")).strip() or not str(item.get("summary", "")).strip():
                 errors.append(f"evidence[{i}] 需同时给出 path 与 summary")
+            if item.get("kind") is not None and item.get("kind") not in EVIDENCE_KINDS:
+                errors.append(f"evidence[{i}] 的 kind 只能取 {sorted(EVIDENCE_KINDS)}")
 
     decisions = state["decision_log"]
     if not isinstance(decisions, list):
@@ -206,6 +214,12 @@ def validate_state(state: Any, errors: List[str]) -> None:
             if not isinstance(rec, dict) or not str(rec.get("answer", "")).strip() \
                     or not str(rec.get("reason", "")).strip():
                 errors.append(f"unresolved_questions[{i}] 的 recommendation 需同时给出 answer 与 reason")
+        for opt in ("owner", "needed_by", "resolves_when"):
+            if opt in u and not isinstance(u.get(opt), str):
+                errors.append(f"unresolved_questions[{i}] 的 {opt} 必须是字符串")
+        cat = u.get("category")
+        if cat is not None and cat not in QUESTION_CATEGORIES:
+            errors.append(f"unresolved_questions[{i}] 的 category 只能取 {sorted(QUESTION_CATEGORIES)}")
 
     gate = state["completion_gate"]
     if not isinstance(gate, dict) or set(gate) != GATE_KEYS:

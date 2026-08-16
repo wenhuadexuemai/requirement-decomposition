@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """技能包内部契约自检。
 
-本技能用九项检查管住它产出的文档，这个脚本管住它自己：模板、脚手架、校验器
+validate_requirements.py 用 C01~C16 十六项检查管住它产出的文档，这个脚本管住
+技能包自己：模板、脚手架、校验器
 三层靠字符串约定耦合，任一层单独改都会静默失效——渲染出没替换的 `{{FOO}}`、
 解析不到表而误判通过、schema 与脚本常量各说各话。这些错误不会报错，只会安静
 地放行，所以必须有一道机器检查。
@@ -55,6 +56,8 @@ CHECK_TITLES = {
     "S16": "人工复核清单脚本冒烟",
     "S17": "文档状态词表在三处一致",
     "S18": "取值词表人读版与机器版一致",
+    "S19": "聚合视图脚本冒烟",
+    "S20": "人工自查词表与 §2.2 一致",
 }
 
 
@@ -183,6 +186,7 @@ def check_version(r: Result) -> None:
 def check_interview_contract(r: Result) -> None:
     from validate_interview import (  # noqa: E402
         GATE_KEYS, STATE_KEYS, VALID_STATUSES, SCHEMA_VERSION, EXAMPLE_STATE,
+        EVIDENCE_KINDS, QUESTION_CATEGORIES,
     )
     path = os.path.join(SKILL_ROOT, "schemas", "interview-state.schema.json")
     if not os.path.exists(path):
@@ -195,6 +199,11 @@ def check_interview_contract(r: Result) -> None:
         ("门禁项", set(props["completion_gate"]["properties"]), GATE_KEYS),
         ("状态必需字段", set(schema["required"]), STATE_KEYS),
         ("status 取值", set(props["status"]["enum"]), VALID_STATUSES),
+        ("evidence.kind 取值",
+         set(props["evidence"]["items"]["properties"]["kind"]["enum"]), EVIDENCE_KINDS),
+        ("未决项 category 取值",
+         set(props["unresolved_questions"]["items"]["properties"]["category"]["enum"]),
+         QUESTION_CATEGORIES),
     ]
     for label, in_schema, in_code in pairs:
         if in_schema != in_code:
@@ -302,17 +311,17 @@ def check_relation_tables(r: Result) -> None:
         if k not in VALID_RELATIONS or v not in VALID_RELATIONS:
             r.error("S04", f"镜像涉及的 {k} 或 {v} 不在 VALID_RELATIONS 词表内")
 
-    # 人读版词表：九种正向类型必须都在 decomposition-rules.md 的表里
+    # 人读版词表：十种正向类型必须都在 decomposition-rules.md 的表里
     rules = os.path.join(SKILL_ROOT, "references", "decomposition-rules.md")
     if os.path.exists(rules):
         text = read(rules)
-        forward = ["依赖", "关联", "组合", "顺序", "互斥", "约束", "数据共享", "事件触发", "回退"]
+        # 正向类型从 VALID_RELATIONS 推导：剔除镜像值（被依赖/隶属等反向词）。
+        # 不硬编码清单——新增关系类型时，VALID_RELATIONS 加了它就自动被核对进 §5 表。
+        backward = {v for k, v in V_MIRROR.items() if v != k}
+        forward = sorted(t for t in VALID_RELATIONS if t not in backward)
         for t in forward:
             if not re.search(r"^\|\s*" + re.escape(t) + r"\s*\|", text, re.M):
                 r.error("S04", f"关系类型「{t}」不在 decomposition-rules.md 第 5 节的表中")
-        for t in forward:
-            if t not in VALID_RELATIONS:
-                r.error("S04", f"关系类型「{t}」在文档中列出，但不在 VALID_RELATIONS 里")
 
 
 # --------------------------------------------------------------------------
@@ -484,6 +493,29 @@ def check_banned_words(r: Result) -> None:
     if wrongly_scanned:
         r.error("S06", f"「人工自查」栏的词进了 BANNED_WORDS：{wrongly_scanned}。"
                        f"这些词作为子串会误伤正常表述，那一栏写了理由")
+
+
+def check_manual_words(r: Result) -> None:
+    """MANUAL_WORDS 与 writing-style §2.2 一致。
+
+    manual_review_checklist.py 的 MANUAL_WORDS 是 §2.2 表的第三份副本：S06 守
+    §2.1↔BANNED_WORDS、拦 §2.2 词进脚本，但不核对 MANUAL_WORDS↔§2.2。改 §2.2 表
+    时这份副本会静默漂移——正是 S06 要防的那类问题，只是换了个位置。
+    """
+    from manual_review_checklist import MANUAL_WORDS
+    path = os.path.join(SKILL_ROOT, "references", "writing-style.md")
+    if not os.path.exists(path):
+        r.error("S20", "找不到 references/writing-style.md")
+        return
+    text = read(path)
+    manual = parse_manual_words(text)
+    in_script = set(MANUAL_WORDS)
+    only_doc = sorted(manual - in_script)
+    only_script = sorted(in_script - manual)
+    if only_doc:
+        r.error("S20", f"§2.2 人工自查栏列了但 MANUAL_WORDS 没有：{only_doc}")
+    if only_script:
+        r.error("S20", f"MANUAL_WORDS 里有但 §2.2 人工自查栏未列：{only_script}")
 
 
 # --------------------------------------------------------------------------
@@ -1062,6 +1094,24 @@ def check_routing_smoke(r: Result) -> None:
 # S16 人工复核清单脚本冒烟
 # --------------------------------------------------------------------------
 
+# S16 的独立期望清单：manual_review_checklist 应输出的全部节标题。
+# 独立于实现手抄（见 check_manual_review_smoke 内注释）；新增/删除节后同步此处，
+# 数量不等会被显式报错拦下。
+EXPECTED_HEADS = (
+    "1. 前置条件能否被上游后置满足",
+    "2. 关系描述与模块正文是否一致",
+    "3. 技术选型问题是否都进了移交事项",
+    "4. 机器已报的结构信号（定夺合并/拆分/异形）",
+    "5. 文档状态是否名副其实",
+    "6. 自然语言禁用词人工自查",
+    "7. 路由触发复核",
+    "8. 耦合审计",
+    "9. 验收标准的覆盖维度",
+    "10. 置信度为推测/待定的关系是否写了判定依据",
+    "11. 场景类型覆盖",
+)
+
+
 def check_manual_review_smoke(r: Result) -> None:
     """manual_review_checklist 冒烟：在空白骨架上跑通并输出清单。
 
@@ -1088,9 +1138,71 @@ def check_manual_review_smoke(r: Result) -> None:
         if proc.returncode != 0:
             r.error("S16", f"manual_review_checklist 退出码 {proc.returncode}："
                            f"{(proc.stderr or proc.stdout)[:200]}")
-        elif ("人工复核清单" not in proc.stdout or "前置条件" not in proc.stdout
-              or "移交事项" not in proc.stdout):
-            r.error("S16", f"manual_review_checklist 输出缺关键节：{proc.stdout[:200]}")
+        elif "人工复核清单" not in proc.stdout:
+            r.error("S16", f"manual_review_checklist 输出缺总标题：{proc.stdout[:200]}")
+        else:
+            # 双保险，缺一不可：
+            # 1) EXPECTED_HEADS 是独立于实现的手抄清单，抓「节被整个删掉/改名」--
+            #    纯推导式断言与实现同源，删节后推导清单同步变短，抓不住删节。
+            # 2) 从源码推导的 heads 抓「节定义了但没渲染出来」（渲染逻辑断裂）。
+            # 3) 两侧数量不等说明有一侧过期（新增节忘抄 / 删节忘清），显式报错
+            #    提醒同步，不静默放行。
+            src = read(os.path.join(SCRIPT_DIR, "manual_review_checklist.py"))
+            heads = re.findall(r'out\.append\("## ([^"]+)"\)', src)
+            if not heads:
+                r.error("S16", "未能从 manual_review_checklist.py 源码提取节标题，"
+                               "检查节是否仍以 out.append(\"## ...\") 单行形式输出")
+            if len(heads) != len(EXPECTED_HEADS):
+                r.error("S16", f"清单实际节数 {len(heads)} 与断言清单 "
+                               f"{len(EXPECTED_HEADS)} 不等，新增/删除节后需同步 "
+                               f"EXPECTED_HEADS：源码节={heads}")
+            for head in heads + list(EXPECTED_HEADS):
+                if head not in proc.stdout:
+                    r.error("S16", f"manual_review_checklist 输出缺「{head}」节："
+                                   f"{proc.stdout[:200]}")
+                    break
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_view_smoke(r: Result) -> None:
+    """build_view 冒烟：在空白骨架上拼聚合视图，确认抽出模块章节。
+
+    build_view 复用 Corpus 找模块文档、按章节关键词抽取并降级拼装，任一环节
+    断掉（Corpus 接口变了、章节标题对不上）都会让聚合视图成空壳。冒烟确认
+    输出含模块标题与章节内容，且不存在的模块报错退 2。
+    """
+    py = sys.executable
+    tmp = tempfile.mkdtemp(prefix="rd-view-")
+    try:
+        docs = os.path.join(tmp, "需求文档")
+        skel = os.path.join(tmp, "skeleton.json")
+        proc = subprocess.run([py, os.path.join(SCRIPT_DIR, "scaffold_docs.py"),
+                               "--print-schema"], capture_output=True, text=True)
+        if proc.returncode != 0:
+            r.error("S19", f"脚手架 --print-schema 失败: {proc.stderr[:120]}")
+            return
+        with open(skel, "w", encoding="utf-8") as f:
+            f.write(proc.stdout)
+        subprocess.run([py, os.path.join(SCRIPT_DIR, "scaffold_docs.py"),
+                        skel, "-o", docs, "--force"], capture_output=True, check=True)
+
+        proc = subprocess.run([py, os.path.join(SCRIPT_DIR, "build_view.py"),
+                               docs, "--modules", "MOD-0001",
+                               "--sections", "目标与范围"],
+                              capture_output=True, text=True)
+        if proc.returncode != 0:
+            r.error("S19", f"build_view 退出码 {proc.returncode}："
+                           f"{(proc.stderr or proc.stdout)[:200]}")
+        elif "MOD-0001" not in proc.stdout or "目标与范围" not in proc.stdout:
+            r.error("S19", f"build_view 输出缺模块标题或章节：{proc.stdout[:200]}")
+
+        proc = subprocess.run([py, os.path.join(SCRIPT_DIR, "build_view.py"),
+                               docs, "--modules", "MOD-9999"],
+                              capture_output=True, text=True)
+        if proc.returncode != 2 or "不存在" not in proc.stderr:
+            r.error("S19", f"build_view 对不存在的模块应退 2 并报错，实际退 "
+                           f"{proc.returncode}：{(proc.stderr or proc.stdout)[:120]}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -1196,12 +1308,12 @@ def _table_first_col(body: str, skip=None) -> set:
 
 
 def check_enumeration_tables(r: Result) -> None:
-    """S18 置信度、依赖强度、NFR 判定词表的人读版与机器版一致。
+    """S18 置信度、依赖强度、NFR 判定、ID 前缀词表的人读版与机器版一致。
 
-    这三处取值此前只有人读版（decomposition-rules §6/§7、document-templates）
-    与机器版（VALID_CONFIDENCE/VALID_STRENGTH/VALID_NFR_VERDICT）两份副本，
-    没有任何 S 检查核对。S04 只守关系类型，S17 只守文档状态。漂移不报错，
-    只会让 C04/C05 拿着过时的词表判合法取值为非法，或反之放过非法取值。
+    这些取值此前只有人读版（decomposition-rules §6/§7/§4、document-templates）
+    与机器版（VALID_CONFIDENCE/VALID_STRENGTH/VALID_NFR_VERDICT/ID_PREFIXES）
+    两份副本，没有任何 S 检查核对。S04 只守关系类型，S17 只守文档状态。漂移
+    不报错，只会让 C04/C05 拿着过时的词表判合法取值为非法，或反之放过非法取值。
     """
     from validate_requirements import (VALID_CONFIDENCE, VALID_NFR_VERDICT,
                                        VALID_STRENGTH)
@@ -1262,6 +1374,25 @@ def check_enumeration_tables(r: Result) -> None:
                 r.error("S18", f"VALID_NFR_VERDICT 含「{v}」，但 NFR 判定表里没有。"
                                f"用户查不到这个取值")
 
+    # 4. ID 前缀：decomposition-rules §4 前缀表首列与 ID_PREFIXES 双向一致。
+    # 此前 §4 只登记 7 种而正则认 9 种（AC/RULE 漏），用户在前缀表查不到
+    # 校验器认的 ID；新增前缀只改正则不改 §4 也无人拦。
+    from validate_requirements import ID_PREFIXES
+    sec4 = _h2_section(rules_text, "4. ID 规范")
+    if not sec4:
+        r.error("S18", "decomposition-rules.md 找不到「## 4. ID 规范」小节")
+    else:
+        # 首列带行内代码反引号（`MOD`），strip 后比对裸前缀
+        listed = {v.strip("`") for v in _table_first_col(sec4, skip={"前缀"})}
+        for p in sorted(listed):
+            if p not in ID_PREFIXES:
+                r.error("S18", f"§4 前缀表列了「{p}」，但不在 ID_PREFIXES 里。"
+                               f"RE_ID_TOKEN 不认它，短序号检查对它无效")
+        for p in sorted(ID_PREFIXES):
+            if p not in listed:
+                r.error("S18", f"ID_PREFIXES 含「{p}」，但 §4 前缀表没有。"
+                               f"用户查不到这个前缀的格式")
+
 
 SELF_CHECKS: Dict[str, Callable[[Result], None]] = {
     "S01": check_version,
@@ -1282,6 +1413,8 @@ SELF_CHECKS: Dict[str, Callable[[Result], None]] = {
     "S16": check_manual_review_smoke,
     "S17": check_doc_status_tables,
     "S18": check_enumeration_tables,
+    "S19": check_view_smoke,
+    "S20": check_manual_words,
 }
 
 

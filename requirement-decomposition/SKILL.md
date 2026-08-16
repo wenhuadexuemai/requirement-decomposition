@@ -1,6 +1,6 @@
 ---
 name: requirement-decomposition
-version: 1.3.3
+version: 1.4.0
 description: 将原始需求转化为「综述 + 功能模块」总分结构的多文档需求知识网络，产出综述、功能模块文档、端到端场景切片、术语表、需求跟踪矩阵与版本计划，并通过校验脚本保证 ID 引用完整、NFR 全覆盖、关系矩阵对称、术语一致。当用户提出需求拆解、需求文档编写、PRD 结构化、需求梳理、模块划分、需求评审准备、需求跟踪矩阵、把会议纪要或原始需求整理成正式需求文档等任务时使用本技能；用户要求「一次只问我一个问题」「先把需求边界问清楚再动手」时进入骨架访谈：证据优先、单问题回合、每问必带推荐答案与理由，骨架获批前不展开目录。不用于：三五条需求的小改动（一份文档更省事）、技术架构与选型设计（那是架构文档）、多源引用的市场调研、单份 PRD 创作、需求文档之后的代码实现。
 agent_created: true
 ---
@@ -34,6 +34,12 @@ agent_created: true
 3. 把清单写成骨架 JSON（结构见 `scripts/scaffold_docs.py --print-schema`）。
 
 **不要在这一轮写任何流程、规则、字段。**
+
+骨架写完先预演展开验证（ID 合法、status 全为草稿），展开成功即可删临时目录：
+
+```bash
+python3 scripts/scaffold_docs.py skeleton.json -o /tmp/骨架预演 && rm -rf /tmp/骨架预演
+```
 
 ### 第 2 轮 · 访谈确认
 
@@ -93,11 +99,17 @@ python3 scripts/validate_requirements.py ./需求文档 --only C02,C03,C04,C07
 
 ### 第 4 轮 · 全局审查
 
+全局审查分三层，不要把自查权全交给生成模型：
+
+1. **脚本护栏**：跑 `validate_requirements.py`，管结构硬错误。
+2. **独立语义审查**：派一个未参与生成的子任务，只看验收标准与改动 diff，审查语义一致性——同一规则是否多口径、关系描述与正文是否一回事、概念是否误用。它不该继承生成过程的叙事。
+3. **人类抽查**：关键模块与高风险项由人过（见 `manual_review_checklist.py` 列出的复核项）。
+
 ```bash
 python3 scripts/validate_requirements.py ./需求文档
 ```
 
-脚本管得住的：ID 悬空、链接断裂、NFR 漏项、关系不对称、矩阵缺行、术语串味、写作禁用词、模块体量异常（C12）、数据写主冲突（C13）、Mermaid 图内悬空模块（C14）、文档状态取值与双处一致（C15）、终态文档引用完整性（C16）。
+脚本管得住的：ID 悬空、链接断裂、NFR 漏项、关系不对称与依赖/顺序成环、矩阵缺行、术语串味、写作禁用词、模块体量异常（C12）、数据写主冲突（C13）、Mermaid 图内悬空模块（C14）、文档状态取值与双处一致（C15）、终态文档引用完整性（C16）。
 
 脚本管不住的，人工过一遍：
 
@@ -113,6 +125,8 @@ python3 scripts/validate_requirements.py ./需求文档
 python3 scripts/manual_review_checklist.py ./需求文档
 ```
 
+**模块文档进入评审的完成定义（DoD）**：ID 已分配且唯一；NFR 适用性声明逐条无留白；至少 1 条基本流与 1 条异常流；至少被 1 个场景引用；术语全部来自术语表；跟踪矩阵行已建立。这些大多有对应校验项（C02/C04/C06/C07），`--strict` 清零即满足大半——DoD 是把它们聚成一道评审门槛，不是新增机制。
+
 **评审通过的模块转「已评审」**。改模块文档头部的状态行，同步改综述模块索引表的状态列，两处一起改——权威源是模块文档，索引表是视图，C15 卡这一条。同时进修订号并加变更记录行：评审动作也要留痕，而变更记录行必须配一个版本号。取值与转移条件见 `references/decomposition-rules.md` 第 8 节。
 
 **本轮暴露的结构性分歧补写决策记录**。第 2 轮访谈里争过的决策同样在此补齐——访谈的决策记录只留了结论，ADR 要把被否决的方案和理由一并写下。
@@ -124,6 +138,14 @@ python3 scripts/manual_review_checklist.py ./需求文档
 模块稳定后再写场景，否则返工。每条旅程一份文档，引用模块文档里**确切的步骤编号**。
 
 场景跑不通说明拆分有问题——回到第 4 轮改模块，不要在场景里打补丁绕过去。把发现记进场景文档的「拆分验证结论」。
+
+场景类型按覆盖清单核对，不是只写 happy path：正常 / 备选 / 异常 / 边缘（并发冲突、极端输入）必盖；性能 / 安全 / 灾难恢复 / 迁移 / 多端 / 弱网 / 可访问性 / 国际化按项目裁剪，声明「本期不涉及 + 理由」，不许静默略过。
+
+场景写完跑校验（链接、ID 引用、Mermaid 图内模块）：
+
+```bash
+python3 scripts/validate_requirements.py ./需求文档 --only C02,C03,C14
+```
 
 ### 第 6 轮 · 版本规划
 
@@ -188,19 +210,20 @@ python3 scripts/validate_requirements.py ./需求文档 --only C15
 | 文件 | 何时读 |
 |------|--------|
 | `references/interview-protocol.md` | 进入第 2 轮之前。状态机、单问题回合、完成门禁、批准与硬停止、中断恢复 |
-| `references/decomposition-rules.md` | 第 1 轮拆分、第 4 轮审查。粒度六项测试、边界判定、ID 规范、九种关系类型词表 |
+| `references/decomposition-rules.md` | 第 1 轮拆分、第 4 轮审查。粒度六项测试、边界判定、ID 规范、十种关系类型词表 |
 | `references/document-templates.md` | 第 2、3、5 轮。每份产物的必含项与填写标准 |
 | `references/writing-style.md` | 写任何正文之前。禁用词表、禁用句式、具体化要求 |
 | `references/quality-gates.md` | 配置 CI、看懂校验报错时 |
+| `references/optional-extensions.md` | L3 严格层按需加扩展产物（接口契约、风险登记册、权限矩阵、数据字典、威胁模型、状态机、业务规则目录）时 |
 | `schemas/interview-state.schema.json` | 访谈状态的字段契约 |
 | `assets/templates/` | 八份空白模板，脚手架的输入源 |
 | `assets/ci/` | CI 接入模板（用前替换 `REPLACE_WITH_SKILL_PATH`） |
 | `evals/routing-evals.json` | 改动 description 后跑 `scripts/run_routing_evals.py` 核对触发边界 |
 | `CHANGELOG.md` | 查某个行为是哪一版引入的、当初为什么这么定 |
 
-七个脚本只依赖 Python 标准库，不访问网络、不绑定托管平台：`scaffold_docs.py` 展开目录，`validate_requirements.py` 十六项检查，`impact_analysis.py` 变更影响分析，`validate_interview.py` 访谈契约校验，`run_routing_evals.py` 触发用例结构校验，`manual_review_checklist.py` 列出脚本管不到、需人工过的复核项，`self_check.py` 技能包自身的内部契约自检。
+八个脚本只依赖 Python 标准库，不访问网络、不绑定托管平台：`scaffold_docs.py` 展开目录，`validate_requirements.py` 十六项检查，`impact_analysis.py` 变更影响分析，`validate_interview.py` 访谈契约校验，`run_routing_evals.py` 触发用例结构校验，`manual_review_checklist.py` 列出脚本管不到、需人工过的复核项，`build_view.py` 按视图配方拼装聚合视图，`self_check.py` 技能包自身的内部契约自检。
 
-前六个管产出的文档（`manual_review_checklist.py` 复用同一份文档索引，列出机器管不到的语义复核项），`self_check.py` 管这个技能包自己——改本包任何文件后跑它。
+其中六个管产出的文档（`manual_review_checklist.py` 与 `build_view.py` 复用同一份文档索引，前者列出机器管不到的语义复核项，后者按视图配方拼装聚合视图）；`run_routing_evals.py` 管技能包自身的触发用例；`self_check.py` 管这个技能包自己的内部契约——改本包任何文件后跑它。
 
 ## 变更维护
 
@@ -212,6 +235,8 @@ python3 scripts/impact_analysis.py --dir ./需求文档 --changed-files 清单.t
 ```
 
 脚本按关系矩阵推导受影响文档并检查是否同步更新。模块内容变了而综述、跟踪矩阵、相关场景没动，一律列为未同步。
+
+脚本拦得住「没同步」，拦不住「不知道该改」。模块的结构性修改（改变关系、数据共享、前置/后置条件）除了同步受影响文档，还要在变更记录写明影响说明，并通知依赖方——即在关系矩阵里登记为「被依赖」「被触发」「数据共享」对方的模块负责人。
 
 置信度在里程碑评审时集中升级：把所有「推测」过一遍，确认的改「已证实」，仍不确定的保持原状并记录阻塞原因。定期做耦合审计，找出文档里没声明但实际存在的依赖，补进矩阵。
 
@@ -263,7 +288,7 @@ python3 scripts/impact_analysis.py --dir ./需求文档 --base origin/main --fai
 改动本技能包自身（模板、脚本、references）之后，另跑这两条：
 
 ```bash
-python3 scripts/self_check.py            # 内部契约十八项，模板/脚手架/校验器三层的一致性
+python3 scripts/self_check.py            # 内部契约二十项，模板/脚手架/校验器三层的一致性
 python3 scripts/run_routing_evals.py     # 改过 description 才需要
 ```
 

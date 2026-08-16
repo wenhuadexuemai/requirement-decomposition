@@ -35,10 +35,15 @@ RE_UC = re.compile(r"\bUC-\d{4,}\b")
 RE_TERM = re.compile(r"\bTERM-\d{4,}\b")
 RE_UI = re.compile(r"\bUI-\d{4,}\b")
 RE_ADR = re.compile(r"\bADR-\d{4,}\b")
+RE_AC = re.compile(r"\bAC-\d{4,}(?:-[A-Z])?-\d{4,}\b")  # 含子模块后缀（AC-0001-A-0001）
+# ID 前缀注册表：单一来源。RE_ID_TOKEN 由它拼接；decomposition-rules.md 第 4 节
+# 的人读前缀表由 S18 与它双向核对--此前人读 7 种、正则认 9 种（AC/RULE 漏登记），
+# 漂移无人拦。新增前缀时改这里，S18 会提醒同步 §4。
+ID_PREFIXES = ("MOD", "NFR", "UC", "TERM", "UI", "ADR", "RULE", "AC", "REQ")
 # 整串扫描，用于查任一段序号不足四位的写法。不能只匹配首段：
 # MOD-0001-REQ-01 的首段合法、尾段不合法，漏掉它等于既不报悬空也不生效。
 RE_ID_TOKEN = re.compile(
-    r"\b(?:MOD|NFR|UC|TERM|UI|ADR|RULE|AC|REQ)(?:-(?:[0-9]+|[A-Z]{1,4}))+")
+    r"\b(?:" + "|".join(ID_PREFIXES) + r")(?:-(?:[0-9]+|[A-Z]{1,4}))+")
 RE_LINK = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
 RE_HEADING = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 
@@ -76,6 +81,8 @@ TABLE_SPECS = {
                        ["业务规则"], ["规则 ID", "规则描述"]),
     "data_requirements": ("module.md", "数据需求表",
                           ["数据需求"], ["实体", "写主"]),
+    "data_entities": ("glossary.md", "数据实体属性表",
+                      ["数据实体"], ["实体", "写主模块"]),
 }
 
 # 跟踪矩阵主表的必需列，C06 逐条核对
@@ -193,7 +200,8 @@ def version_step(prev: Tuple[int, int, int],
 
 VALID_RELATIONS = {
     "依赖", "关联", "组合", "顺序", "互斥", "约束", "数据共享", "事件触发", "回退",
-    "被依赖", "隶属", "后置于", "受约束于", "被触发", "补偿对象",
+    "泛化",
+    "被依赖", "隶属", "后置于", "受约束于", "被触发", "补偿对象", "特化",
 }
 RELATION_MIRROR = {
     "依赖": "被依赖", "被依赖": "依赖",
@@ -202,6 +210,7 @@ RELATION_MIRROR = {
     "约束": "受约束于", "受约束于": "约束",
     "事件触发": "被触发", "被触发": "事件触发",
     "回退": "补偿对象", "补偿对象": "回退",
+    "泛化": "特化", "特化": "泛化",
     "关联": "关联", "互斥": "互斥", "数据共享": "数据共享",
 }
 VALID_CONFIDENCE = {"已证实", "推测", "待定"}
@@ -259,6 +268,7 @@ BANNED_WORDS = {
     "万能开场": ["本模块旨在", "本文档旨在", "为了更好地", "随着业务的发展",
                  "在当今", "通过合理的设计"],
     "模糊量词": ["一定程度上", "相对较", "较为", "通常情况下", "一般来说", "大量地"],
+    "需求异味": ["尽可能", "尽量", "令人满意", "足够好"],
 }
 
 # 不含「占位」：它是合法技术词（「占位符」），子串匹配会误报正常表述。
@@ -953,6 +963,36 @@ def _local_relation_map(c: Corpus, doc: Doc) -> Dict[str, Set[str]]:
     return result
 
 
+def _find_dep_cycles(graph: Dict[str, List[str]]) -> List[List[str]]:
+    """有向关系图里找环路（三色 DFS）。只用于「依赖/顺序」这类有严格先后
+    语义的关系——数据共享、事件触发、回退的环是合理的（双向订阅、互为兜底）。"""
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: Dict[str, int] = {}
+    cycles: List[List[str]] = []
+    seen: Set[Tuple[str, ...]] = set()
+
+    def dfs(node: str, path: List[str]) -> None:
+        color[node] = GRAY
+        path.append(node)
+        for nxt in graph.get(node, []):
+            state = color.get(nxt, WHITE)
+            if state == GRAY:
+                cyc = path[path.index(nxt):] + [nxt]
+                key = tuple(sorted(set(cyc)))
+                if key not in seen:
+                    seen.add(key)
+                    cycles.append(cyc)
+            elif state == WHITE:
+                dfs(nxt, path[:])
+        path.pop()
+        color[node] = BLACK
+
+    for node in graph:
+        if color.get(node, WHITE) == WHITE:
+            dfs(node, [])
+    return cycles
+
+
 def check_relations(c: Corpus) -> List[Issue]:
     out: List[Issue] = []
     ov = c.overview.rel if c.overview else "-"
@@ -1015,6 +1055,25 @@ def check_relations(c: Corpus) -> List[Issue]:
             out.append(Issue("ERROR", "C05", doc_of.get(dst, f"modules/{dst}"),
                              f"关系矩阵登记了 {tag}（{rtype}），但 {dst} 的关系本地视图中缺少 {src}"
                              f"（应登记为「{mirror}」）"))
+
+    # 环路检测：只对「依赖」「顺序」这类有严格先后/因果语义的关系建图。
+    graph: Dict[str, List[str]] = {}
+    for row in c.relations:
+        src = first_id(get_col(row, *RELATION_COLUMNS["source"]), RE_MOD)
+        dst = first_id(get_col(row, *RELATION_COLUMNS["target"]), RE_MOD)
+        rtype = get_col(row, *RELATION_COLUMNS["type"]).strip()
+        if not src or not dst:
+            continue
+        # 镜像词归一化为正向后建图：「被依赖」B←A 即 A 依赖 B，「后置于」同理。
+        # 只建正向词的图会让写成镜像词的环路漏检（双向依赖用两个「被依赖」就绕过）。
+        if rtype in ("依赖", "顺序"):
+            graph.setdefault(src, []).append(dst)
+        elif rtype in ("被依赖", "后置于"):
+            graph.setdefault(dst, []).append(src)
+    for cycle in _find_dep_cycles(graph):
+        out.append(Issue("ERROR", "C05", ov,
+                         f"依赖/顺序关系存在环路: {' → '.join(cycle)}，互为前置"
+                         f"导致无法确定启动顺序，需打破环（改为数据共享或弱依赖降级）"))
     return out
 
 
@@ -1074,6 +1133,34 @@ def check_traceability(c: Corpus) -> List[Issue]:
         if doc and rid not in doc.text:
             out.append(Issue("WARN", "C06", tdoc.rel,
                              f"{rid} 在矩阵中登记，但模块文档 {mid} 里找不到这条需求"))
+
+    # 反向追溯到验收层：RTM 验收列引用的 AC 必须真实存在于模块文档（验收悬空）；
+    # 模块文档里的 AC 必须被 RTM 引用（验收孤儿）。两者都意味着追溯链断了一头。
+    rtm_acs: Set[str] = set()
+    for row in table.rows:
+        rtm_acs.update(RE_AC.findall(get_col(row, "验收", "验收标准 ID")))
+    doc_acs: Dict[str, str] = {}
+    for doc in c.modules:
+        for ac in set(RE_AC.findall(strip_code_blocks(doc.text))):
+            doc_acs.setdefault(ac, doc.rel)
+    for ac in sorted(rtm_acs):
+        if ac not in doc_acs:
+            out.append(Issue("WARN", "C06", tdoc.rel,
+                             f"验收标准 {ac} 在跟踪矩阵中引用，但任何模块文档里都找不到它"))
+    for ac, rel in sorted(doc_acs.items()):
+        if ac not in rtm_acs:
+            out.append(Issue("WARN", "C06", rel,
+                             f"验收标准 {ac} 定义在模块文档里，但未登记进需求跟踪矩阵的验收列"))
+
+    # RTM 覆盖率统计（供跟踪矩阵「覆盖率统计」节填写，不再纯手填）
+    total = len(seen)
+    if total:
+        with_uc = sum(1 for row in table.rows if RE_UC.search(get_col(row, "场景", "场景 ID")))
+        with_ac = sum(1 for row in table.rows if RE_AC.search(get_col(row, "验收", "验收标准 ID")))
+        must = sum(1 for row in table.rows if get_col(row, "优先级").strip() == "Must")
+        out.append(Issue("INFO", "C06", tdoc.rel,
+                         f"跟踪矩阵覆盖率：需求 {total} 条，关联场景 {with_uc} 条，"
+                         f"有验收标准 {with_ac} 条，Must 级 {must} 条"))
     return out
 
 
@@ -1404,6 +1491,27 @@ def check_data_owners(c: Corpus) -> List[Issue]:
             out.append(Issue("WARN", "C13", "-",
                              f"数据「{entity}.{attr}」有多个写主 {sorted(ws)}，"
                              f"确认是冲突还是异形同义：{where[(entity, attr)]}"))
+
+    # 交叉核对：术语表数据实体表的「写主模块」与模块文档数据需求表的「写主」
+    # 登记的是同一事实，两处必须一致。这张表已收进 TABLE_SPECS（data_entities），
+    # S05 守它的标题/表头与模板一致，改名会立刻报错。
+    if c.glossary:
+        gt = pick_table(c.tables[c.glossary.rel], *table_spec("data_entities"))
+        if gt is not None:
+            for row in gt.rows:
+                entity = get_col(row, "实体")
+                attr = get_col(row, "属性")
+                if not _is_filled(entity) or not _is_filled(attr):
+                    continue
+                gowner = first_id(get_col(row, "写主模块", "写主"), RE_MOD)
+                if not gowner:
+                    continue
+                key = (entity.strip(), attr.strip())
+                doc_owners = owners.get(key, set())
+                if doc_owners and gowner not in doc_owners:
+                    out.append(Issue("WARN", "C13", c.glossary.rel,
+                                     f"数据「{entity}.{attr}」术语表写主为 {gowner}，"
+                                     f"模块文档写主为 {sorted(doc_owners)}，两处不一致"))
     return out
 
 
@@ -1732,7 +1840,8 @@ def render_snapshot(corpus: Corpus, review_date: str) -> Tuple[str, List[str]]:
     由调用方打到 stderr——本函数的返回值会被 `>>` 追加进文档，提示混进去就成了
     基线正文的一部分。
 
-    脚本不回写文档：这个包除 scaffold_docs.py 外没有写文档的脚本，破这个约定的
+    脚本不回写文档：这个包除 scaffold_docs.py 外没有回写源文档的脚本（build_view -o
+    生成新聚合视图文件，不改源文档），破这个约定的
     代价大于省下的手工。这里只提示该改哪些，人去改，C15 下一轮验证改对了没有。
     """
     rels = sorted(corpus.doc_versions)

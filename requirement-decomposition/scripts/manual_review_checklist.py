@@ -24,7 +24,7 @@ from typing import Dict, List
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from validate_requirements import (  # noqa: E402
-    Corpus, RE_MOD, first_id, get_col, pick_table,
+    Corpus, RE_MOD, RE_UC, first_id, get_col, pick_table,
 )
 
 # 本脚本自用的表规约。不进 validate_requirements.TABLE_SPECS：校验器不查
@@ -70,6 +70,65 @@ def collect_relations(c: Corpus) -> List[str]:
         desc = get_col(row, "关系描述", "描述").strip()
         lines.append(f"- {src} → {dst}（{rtype}）：{desc}")
         lines.append("  - 复核：描述与双方模块正文说的是否一回事")
+    return lines
+
+
+def collect_coupling(c: Corpus) -> List[str]:
+    """耦合审计：列数据共享/事件触发/依赖的模块对，供人抽检未声明的耦合。
+
+    关系矩阵只登记了已声明的耦合；没声明但实际存在的（隐式时序假设、正文里
+    共享了数据却没登记）机器列不出来，只能人定期抽检。数据共享/事件触发/依赖
+    是最容易产生隐式耦合的三类，列出来作为抽检对象。
+    """
+    lines: List[str] = []
+    for row in c.relations:
+        rtype = get_col(row, "关系类型", "类型").strip()
+        if rtype not in ("数据共享", "事件触发", "依赖"):
+            continue
+        src = get_col(row, "源模块", "源").strip()
+        dst = get_col(row, "目标模块", "目标", "目的").strip()
+        lines.append(f"- {src} ↔ {dst}（{rtype}）")
+    if lines:
+        lines.append("  - 复核：通读双方模块正文，是否存在未在关系矩阵登记的"
+                     "时序假设或数据耦合；发现即补录进矩阵并标置信度")
+    return lines
+
+
+def collect_confidence(c: Corpus) -> List[str]:
+    """置信度判定依据：列推测/待定的关系，供人核描述里是否写了判定依据。"""
+    lines: List[str] = []
+    for row in c.relations:
+        conf = get_col(row, "置信度").strip()
+        if conf not in ("推测", "待定"):
+            continue
+        src = get_col(row, "源模块", "源").strip()
+        dst = get_col(row, "目标模块", "目标", "目的").strip()
+        desc = get_col(row, "关系描述", "描述").strip()
+        lines.append(f"- {src} → {dst}（{conf}）：{desc}")
+    if lines:
+        lines.append("  - 复核：每条描述里是否写明了判定依据（谁判的、依据什么）；"
+                     "没写的补依据，能确认的就升级为已证实")
+    return lines
+
+
+def collect_scenario_types(c: Corpus) -> List[str]:
+    """场景类型覆盖：列每个场景的类型，供人核必盖类是否都盖了。"""
+    lines: List[str] = []
+    for doc in c.scenarios:
+        t = pick_table(c.tables[doc.rel], ["场景信息"], ["项", "值"])
+        stype = ""
+        if t is not None:
+            for row in t.rows:
+                if get_col(row, "项").strip() == "场景类型":
+                    stype = get_col(row, "值").strip()
+        uid = first_id(os.path.basename(doc.rel), RE_UC) or doc.rel
+        if not stype or stype.startswith("[待确认"):
+            lines.append(f"- {uid}：场景类型未标注")
+        else:
+            lines.append(f"- {uid}：{stype}")
+    if lines:
+        lines.append("  - 复核：正常 / 备选 / 异常 / 边缘四类必盖；其余类型本期不涉及的"
+                     "要声明理由，不许静默略过")
     return lines
 
 
@@ -200,6 +259,40 @@ def main() -> int:
                "导出 prompt 清单逐条过：")
     out.append("")
     out.append("    python3 run_routing_evals.py --emit-prompts")
+    out.append("")
+
+    out.append("## 8. 耦合审计")
+    out.append("")
+    out.append("关系矩阵只登记了已声明的耦合。没声明但实际存在的（隐式时序假设、"
+               "正文里共享了数据却没登记），机器列不出来，只能定期人抽检。")
+    out.append("")
+    ls = collect_coupling(c)
+    out.append("\n".join(ls) if ls else "- （关系矩阵为空，暂无抽检对象）")
+    out.append("")
+
+    out.append("## 9. 验收标准的覆盖维度")
+    out.append("")
+    out.append("每条需求的验收标准应覆盖适用的维度（不是每条都全盖）：正常路径 / "
+               "边界 / 错误处理 / 权限 / 并发 / 状态流转 / 幂等。逐需求问一遍："
+               "这条的验收有没有漏掉该盖的维度？")
+    out.append("")
+
+    out.append("## 10. 置信度为推测/待定的关系是否写了判定依据")
+    out.append("")
+    out.append("规则（decomposition-rules.md 第 6 节）：推测/待定必须在描述里写明判定依据，"
+               "已证实必须能指认依据。脚本只查取值合法，查不了依据是否真写了。")
+    out.append("")
+    ls = collect_confidence(c)
+    out.append("\n".join(ls) if ls else "- （没有推测/待定态的关系）")
+    out.append("")
+
+    out.append("## 11. 场景类型覆盖")
+    out.append("")
+    out.append("SKILL.md 第 5 轮要求场景按 12 类核对覆盖：正常/备选/异常/边缘必盖，"
+               "其余类型本期不涉及的声明理由。脚本只查 ID 与链接，查不了类型覆盖。")
+    out.append("")
+    ls = collect_scenario_types(c)
+    out.append("\n".join(ls) if ls else "- （未解析到任何场景文档）")
     out.append("")
 
     print("\n".join(out))

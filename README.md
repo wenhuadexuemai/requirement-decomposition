@@ -10,7 +10,7 @@
 |------|----------------|
 | 需求文档越写越长没人读 | 总分结构：综述管全局，模块只写自己的事，通过 ID 互引 |
 | 改一处边界要返工整批文档 | 骨架先定，访谈阻塞确认后才展开；骨架错了只改骨架 |
-| ID 悬空、链接断裂没人查 | 七个脚本做机器护栏，十六项一致性检查 |
+| ID 悬空、链接断裂没人查 | 八个脚本做机器护栏，十六项一致性检查 |
 | 术语混用、同义替换 | 术语表禁用同义词列，C07 全文扫描 |
 | 版本号各写各的 | C11 卡三段号 + 变更记录一致 |
 | 文档状态没人管 | C15 状态机 + `--snapshot` 基线门禁 |
@@ -19,7 +19,7 @@
 ## 环境要求
 
 - Python 3.11+
-- 七个脚本只依赖 Python 标准库，无需安装第三方包
+- 八个脚本只依赖 Python 标准库，无需安装第三方包
 
 ## 快速开始
 
@@ -42,7 +42,7 @@ python3 $S/validate_requirements.py ./需求文档 --strict   # 定稿门禁，�
 python3 $S/validate_requirements.py ./需求文档 --only C04,C05  # 只跑指定项
 ```
 
-空白骨架期望：ERROR 0，仅 C04 若干 WARN + C09 INFO，退出码 0。
+空白骨架期望：ERROR 0，仅 C04 若干 WARN + C06/C09/C15 若干 INFO，退出码 0。
 
 ### 其他脚本
 
@@ -57,16 +57,16 @@ python3 $S/validate_interview.py --print-example           # 访谈状态样例
 
 | 轮 | 做什么 | 跑什么校验 |
 |----|--------|------------|
-| 1 · 骨架 | 通读原始材料，产出骨架 JSON | `--only C01,C05` |
+| 1 · 骨架 | 通读原始材料，产出骨架 JSON | 预演展开（scaffold 到临时目录） |
 | 2 · 访谈确认 | 阻塞式单问题回合，逐条问实骨架 | `validate_interview.py` |
 | 3 · 逐模块生成 | 展开目录，逐模块填写 | `--only C02,C03,C04,C07` |
 | 4 · 全局审查 | 跨模块一致性 | 全量默认 |
-| 5 · 场景编写 | 端到端场景切片 | 全量默认 |
+| 5 · 场景编写 | 端到端场景切片 | `--only C02,C03,C14` |
 | 6 · 版本规划 | 版本计划与定稿 | `--strict` -> `--snapshot` -> 转已冻结 |
 
 完整流程见 `requirement-decomposition/SKILL.md`。
 
-## 七个脚本
+## 八个脚本
 
 | 脚本 | 职责 |
 |------|------|
@@ -76,7 +76,8 @@ python3 $S/validate_interview.py --print-example           # 访谈状态样例
 | `impact_analysis.py` | 变更影响分析 + 状态未回退检测 |
 | `manual_review_checklist.py` | 列出脚本管不到、需人工过的复核项 |
 | `run_routing_evals.py` | 触发边界用例校验 |
-| `self_check.py` | S01~S18 技能包内部契约自检 |
+| `build_view.py` | 按视图配方把多个模块的指定章节拼成聚合视图 |
+| `self_check.py` | S01~S20 技能包内部契约自检 |
 
 ## 十六项检查
 
@@ -99,7 +100,7 @@ python3 $S/validate_interview.py --print-example           # 访谈状态样例
 | C15 | 文档状态一致性 |
 | C16 | 终态文档引用完整性 |
 
-另有 S01~S18 十八项内部契约自检，管住模板、脚手架、校验器三层的一致性。详见 `requirement-decomposition/references/quality-gates.md`。
+另有 S01~S20 二十项内部契约自检，管住模板、脚手架、校验器三层的一致性。详见 `requirement-decomposition/references/quality-gates.md`。
 
 ## 架构：三层契约
 
@@ -142,6 +143,7 @@ graph TB
 ```
 requirement-decomposition/
 ├── SKILL.md                  # 技能完整工作流
+├── CHANGELOG.md              # 变更记录
 ├── assets/
 │   ├── ci/                   # CI 模板（GitHub Actions / pre-commit）
 │   └── templates/            # 八份空白模板
@@ -149,11 +151,12 @@ requirement-decomposition/
 │   ├── decomposition-rules.md
 │   ├── document-templates.md
 │   ├── interview-protocol.md
+│   ├── optional-extensions.md
 │   ├── quality-gates.md
 │   └── writing-style.md
 ├── schemas/
 │   └── interview-state.schema.json
-├── scripts/                  # 七个 Python 脚本
+├── scripts/                  # 八个 Python 脚本
 └── evals/
     └── routing-evals.json
 ```
