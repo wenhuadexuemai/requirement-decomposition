@@ -51,7 +51,7 @@ CHECK_TITLES = {
     "S11": "模板固定文案不埋 C07 地雷",
     "S12": "模板版本契约与校验器一致",
     "S13": "访谈链负例冒烟",
-    "S14": "影响分析冒烟",
+    "S14": "影响分析与复核销项冒烟",
     "S15": "路由脚本冒烟",
     "S16": "人工复核清单脚本冒烟",
     "S17": "文档状态词表在三处一致",
@@ -1020,6 +1020,9 @@ def check_impact_smoke(r: Result) -> None:
 
     self_check 此前零覆盖 impact_analysis：BFS 传播、realpath 路径归一、
     core.quotepath 全无自动化测试，改它引入 bug 后自检照过。
+
+    1.4.1 起加销项三例：全量销项退 0、异常销项条目被点名、销项豁免不了
+    状态未回退（更硬的违规，复核结论掩护不到）。
     """
     py = sys.executable
     tmp = tempfile.mkdtemp(prefix="rd-impact-")
@@ -1062,6 +1065,58 @@ def check_impact_smoke(r: Result) -> None:
                            f"输出: {proc.stdout[:200]}")
         elif "综述" not in proc.stdout and "跟踪矩阵" not in proc.stdout:
             r.error("S14", f"impact_analysis 未报出综述/跟踪矩阵未同步。输出: {proc.stdout[:200]}")
+        if proc.returncode == 1:
+            # 销项正例：把首跑报出的未同步条目全量销掉，门禁应放行并列出销项节
+            cleared_file = os.path.join(tmp, "cleared.txt")
+            marked = [ln.strip()[2:].strip() for ln in proc.stdout.splitlines()
+                      if ln.startswith("  - ")]
+            if not marked:
+                r.error("S14", f"首跑退出 1 但解析不到未同步条目。输出: {proc.stdout[:200]}")
+            else:
+                with open(cleared_file, "w", encoding="utf-8") as f:
+                    f.write("\n".join(marked) + "\n")
+                proc = subprocess.run([py, os.path.join(SCRIPT_DIR, "impact_analysis.py"),
+                                       "--dir", docs, "--base", "HEAD~1", "--repo", tmp,
+                                       "--fail-on-unsynced", "--cleared", cleared_file],
+                                      capture_output=True, text=True)
+                if proc.returncode != 0 or "已复核销项" not in proc.stdout:
+                    r.error("S14", f"全量销项后期望退出 0 且报销项节，实际退出 "
+                                   f"{proc.returncode}。输出: {proc.stdout[:200]}")
+                # 异常条目负例：解析不了的与不在受影响集的都要被点名，且不翻门禁
+                with open(cleared_file, "a", encoding="utf-8") as f:
+                    f.write("MOD-9999\n01-术语表.md\n")
+                proc = subprocess.run([py, os.path.join(SCRIPT_DIR, "impact_analysis.py"),
+                                       "--dir", docs, "--base", "HEAD~1", "--repo", tmp,
+                                       "--fail-on-unsynced", "--cleared", cleared_file],
+                                      capture_output=True, text=True)
+                if proc.returncode != 0 or "MOD-9999" not in proc.stdout \
+                        or "01-术语表.md" not in proc.stdout:
+                    r.error("S14", f"异常销项条目未被点名或门禁被翻动，退出 "
+                                   f"{proc.returncode}。输出: {proc.stdout[:300]}")
+                # 状态未回退负例：先转已评审提交，再改正文，销项清单豁免不了
+                mod_path = os.path.join(docs, "modules", mod_files[0])
+                with open(mod_path, "r", encoding="utf-8") as f:
+                    body = f.read()
+                flipped = re.sub(r"(\|\s*状态\s*\|\s*)草稿(\s*\|)",
+                                 r"\g<1>已评审\g<2>", body, count=1)
+                if flipped == body:
+                    r.error("S14", "模块文档状态行未按预期写法找到，状态未回退负例构造失败")
+                else:
+                    with open(mod_path, "w", encoding="utf-8") as f:
+                        f.write(flipped)
+                    git("add", "-A")
+                    git("commit", "-q", "-m", "转已评审")
+                    with open(mod_path, "a", encoding="utf-8") as f:
+                        f.write("\n<!-- 评审后又改正文 -->\n")
+                    git("add", "-A")
+                    git("commit", "-q", "-m", "评审后改正文")
+                    proc = subprocess.run([py, os.path.join(SCRIPT_DIR, "impact_analysis.py"),
+                                           "--dir", docs, "--base", "HEAD~1", "--repo", tmp,
+                                           "--fail-on-unsynced", "--cleared", cleared_file],
+                                          capture_output=True, text=True)
+                    if proc.returncode != 1 or "状态未回退" not in proc.stdout:
+                        r.error("S14", f"销项清单在场时状态未回退仍应退 1，实际退出 "
+                                       f"{proc.returncode}。输出: {proc.stdout[:200]}")
     except FileNotFoundError:
         r.warn("S14", "环境无 git，跳过 impact_analysis 冒烟")
     except subprocess.CalledProcessError as exc:

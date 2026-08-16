@@ -246,6 +246,10 @@ def main() -> int:
     ls = collect_status(c)
     out.append("\n".join(ls) if ls else "- （未解析到任何文档的状态行）")
     out.append("")
+    out.append("- 本轮影响分析若用了 `--cleared` 复核销项：确认销项连同结论已登记入"
+               "「04-版本快照.md」的变更复核登记节。销项不跨变更集沿用，"
+               "下一轮要重新复核、重新登记。")
+    out.append("")
 
     out.append("## 6. 自然语言禁用词人工自查")
     out.append("")

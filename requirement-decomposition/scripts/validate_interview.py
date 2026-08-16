@@ -66,7 +66,7 @@ SCHEMA_VERSION = "1.0.0"
 EXAMPLE_STATE = {
     "schema_version": SCHEMA_VERSION,
     "session_id": "sess-2026-08-08-order",
-    "skill_version": "1.4.0",
+    "skill_version": "1.4.1",
     "mode": "skeleton-interview",
     "status": "interviewing",
     "next_question_id": "Q-02",

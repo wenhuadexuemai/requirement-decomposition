@@ -231,7 +231,17 @@ python3 scripts/impact_analysis.py --dir ./需求文档 --base origin/main --fai
 # 直接给清单（无 VCS、用 SVN、或变更集来自别处）
 python3 scripts/impact_analysis.py --dir ./需求文档 --changed-files changed.txt
 git diff --name-only main | python3 scripts/impact_analysis.py --dir ./需求文档 --changed-files -
+
+# 复核确认无需改动的文档，用销项清单抵扣（每行一个路径或 MOD/UC/ADR 的 ID）
+python3 scripts/impact_analysis.py --dir ./需求文档 --base origin/main --fail-on-unsynced --cleared cleared.txt
 ```
+
+邻接传播是粗粒度的：改了模块，它的全部邻接模块都进「受影响」清单，逐份复核后常见「确认无需改动」的结论。这个结论要用 `--cleared` 销项回传给门禁，**不要**靠给这些文档空转版本号+变更记录让门禁闭嘴——空转进位腐蚀 C11 的进位判据（读者是否需要重读）。销项规则：
+
+- 只抵扣「受影响但未同步」；「状态未回退」是更硬的违规，复核结论豁免不了。
+- 销项条目在报告里单列并保留原影响原因，CI 日志里可审计，不是静默吞掉。
+- 解析不了的条目（错别字、库内没有的 ID）与不在本次受影响清单里的条目（可能沿用了上一轮里程碑的清单）都会在报告里点名。匹配不上等于没销，对应文档仍会报未同步——门禁天然向失败侧倒。
+- 销项不跨变更集粘连。里程碑评审时把本轮销项连同结论登记进 `04-版本快照.md` 的「变更复核登记」节，下一轮变更集重新复核、重新登记。
 
 `--changed-files` 接每行一个路径的文本，`-` 表示标准输入。路径相对仓库根或相对文档目录都认。
 
@@ -289,7 +299,7 @@ python3 scripts/self_check.py --format json
 | S11 | 模板固定文案不埋 C07 地雷 | 模板正文用了用户可能登记为禁用同义词的业务名词（订单、回退、校验…），导致每份产物都报 C07 而违规出自模板 |
 | S12 | 模板版本契约与校验器一致 | 模板漏写「文档版本」行或变更记录缺版本列，C11 会把「模板没给」误报成「用户没填」；七份模板初始版本不一致 |
 | S13 | 访谈链负例冒烟 | validate_transcript 的负例（两个问号、推荐缺理由、首问前无 evidence_read、门禁/阻塞/expansion 违规、final 早于 approval、resume 接续错/哈希不符）有任一咬不住 |
-| S14 | 影响分析冒烟 | 临时 git 仓库改一份模块文档，impact_analysis 未报出受影响的综述/跟踪矩阵/关联模块 |
+| S14 | 影响分析与复核销项冒烟 | 临时 git 仓库改一份模块文档，impact_analysis 未报出受影响的综述/跟踪矩阵/关联模块；全量销项后门禁未放行或缺销项节；异常销项条目未被点名；销项清单在场时状态未回退未拦住 |
 | S15 | 路由脚本冒烟 | run_routing_evals 默认用例未通过结构校验、--emit-prompts 导不出复核清单 |
 | S16 | 人工复核清单脚本冒烟 | manual_review_checklist 在空白骨架上退出码非 0、输出缺节（独立清单与源码推导双查）、节数与 EXPECTED_HEADS 不等 |
 | S17 | 文档状态词表在三处一致 | `decomposition-rules.md` 第 8 节、`VALID_DOC_STATUS`、脚手架副本三处漂移（两个方向都查）；初始态不在词表或被列进 `FROZEN_DOC_STATUS`；模板正文又抄一份取值列举 |

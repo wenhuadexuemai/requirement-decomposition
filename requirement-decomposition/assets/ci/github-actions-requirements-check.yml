@@ -92,6 +92,8 @@ jobs:
 
       - name: 计算受影响文档
         id: impact
+        # 邻接模块被过度标记、复核确认无需改动时，追加 --cleared 清单.txt
+        #（每行一个路径或 MOD/UC/ADR 的 ID），不要靠空转版本号让门禁通过
         run: |
           git fetch origin ${{ github.base_ref }} --depth=50
           python3 "$SKILL_DIR/scripts/impact_analysis.py" \

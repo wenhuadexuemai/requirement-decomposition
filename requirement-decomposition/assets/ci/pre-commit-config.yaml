@@ -40,3 +40,5 @@ repos:
         entry: >
           python3 REPLACE_WITH_SKILL_PATH/requirement-decomposition/scripts/impact_analysis.py
           --dir 需求文档 --base origin/main --fail-on-unsynced
+        # 邻接模块被过度标记、复核确认无需改动时，追加 --cleared 清单.txt
+        #（每行一个路径或 MOD/UC/ADR 的 ID），不要靠空转版本号让门禁通过

@@ -18,12 +18,25 @@
 --changed-files 接一个每行一个路径的文本文件，`-` 表示从标准输入读。
 路径相对仓库根或相对文档目录都认。
 
+邻接传播是粗粒度的：改了模块，它的全部邻接模块都进「受影响」清单。人工复核
+后确认无需改动的，走 --cleared 销项，而不是空转版本号让门禁闭嘴——空转进位
+正好腐蚀 C11 的进位判据（读者是否需要重读）：
+
+    python3 impact_analysis.py --dir ./需求文档 --base origin/main \
+        --fail-on-unsynced --cleared cleared.txt
+
+--cleared 清单每行一个文档路径（口径同变更清单）或 MOD/UC/ADR 的 ID，`-` 表示
+标准输入。判定由此从二值（改了/没改）补成三值（改了/核过无需改/没核）。销项
+只抵扣「受影响但未同步」；「状态未回退」是更硬的违规，复核结论豁免不了。销项
+不跨变更集粘连：它是每次运行的输入，工具不记历史，里程碑级登记用版本快照文档
+的「变更复核登记」节。
+
 除「该改而没改」之外，还查「改了但状态没退」：正文改动后状态仍挂在已评审／
 已冻结的文档会单独列出。这是文档生命周期回路上唯一的自动强制点——正向路径
 靠人记得，回退只能靠机器盯。
 
-退出码: 0 = 无未同步项, 1 = 存在未同步文档或状态未回退（需 --fail-on-unsynced）,
-        2 = 用法或环境错误
+退出码: 0 = 无未同步项（或已全部销项）,
+        1 = 存在未同步文档或状态未回退（需 --fail-on-unsynced）, 2 = 用法或环境错误
 """
 
 from __future__ import annotations
@@ -65,11 +78,11 @@ def git_diff_files(base: str, repo: str) -> List[str]:
         raise SystemExit(2)
 
 
-def read_changed_files(source: str) -> List[str]:
-    """从文件或标准输入读变更清单，每行一个路径。`-` 表示标准输入。
+def read_line_list(source: str, what: str) -> List[str]:
+    """从文件或标准输入读每行一项的清单。`-` 表示标准输入。
 
-    变更集是本脚本的输入，不该被 VCS 绑死：SVN、无版本控制的共享目录、
-    从别处导出的清单，都走这个入口。
+    变更集与销项清单都是本脚本的输入，不该被 VCS 绑死：SVN、无版本控制的
+    共享目录、从别处导出的清单，都走这个入口。
     """
     try:
         if source == "-":
@@ -78,7 +91,7 @@ def read_changed_files(source: str) -> List[str]:
             with open(source, "r", encoding="utf-8") as f:
                 raw = f.read()
     except (OSError, UnicodeDecodeError) as exc:
-        print(f"无法读取变更清单 {source}: {exc}", file=sys.stderr)
+        print(f"无法读取{what} {source}: {exc}", file=sys.stderr)
         raise SystemExit(2)
     out: List[str] = []
     for line in raw.splitlines():
@@ -139,6 +152,52 @@ def modules_of_decisions(corpus: Corpus, adr_paths: Set[str]) -> Dict[str, Set[s
     return hit
 
 
+def resolve_cleared(corpus: Corpus, entries: List[str],
+                    doc_root: str) -> Tuple[Set[str], List[str]]:
+    """销项清单 -> (解析出的文档相对路径集合, 提示条目)。
+
+    每行认两种写法：文档路径（相对仓库根或相对文档目录，与变更清单同口径，
+    再兜底按文件名匹配），或文档级 ID（MOD/UC/ADR）。NFR/TERM 之类活在其他
+    文档内部的 ID 定位不到一份文档，整条不匹配。
+
+    解析失败只提示不报错退出：匹配不上意味着对应文档仍留在未同步清单里，
+    门禁照败，天然 fail closed。提示是为了让人看见清单里那条错别字。
+    """
+    resolved: Set[str] = set()
+    notes: List[str] = []
+    for entry in entries:
+        rel = ""
+        if first_id(entry, RE_MOD) == entry:
+            doc = corpus.module_doc(entry)
+            rel = doc.rel if doc else ""
+        elif first_id(entry, RE_UC) == entry:
+            rel = next((d.rel for d in corpus.scenarios
+                        if first_id(os.path.basename(d.rel), RE_UC) == entry), "")
+        elif first_id(entry, RE_ADR) == entry:
+            rel = next((d.rel for d in corpus.decisions
+                        if first_id(os.path.basename(d.rel), RE_ADR) == entry), "")
+        else:
+            p = os.path.normpath(entry)
+            candidates = [p]
+            if doc_root not in (".", ""):
+                if p.startswith(doc_root + os.sep):
+                    candidates.insert(0, os.path.relpath(p, doc_root))
+                else:
+                    candidates.append(os.path.join(doc_root, p))
+            rel = next((c for c in candidates if c in corpus.by_rel), "")
+            if not rel:
+                base_hits = [d.rel for d in corpus.docs
+                             if os.path.basename(d.rel) == os.path.basename(p)]
+                if len(base_hits) == 1:
+                    rel = base_hits[0]
+        if rel:
+            resolved.add(rel)
+        else:
+            notes.append(f"「{entry}」无法解析为库内文档，已忽略"
+                         f"（它若真受影响，仍会报在未同步清单里）")
+    return resolved, notes
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="需求文档变更影响分析")
     ap.add_argument("--dir", required=True, help="需求文档根目录")
@@ -147,11 +206,18 @@ def main() -> int:
     ap.add_argument("--changed-files", metavar="路径",
                     help="变更文件清单（每行一个路径，- 表示标准输入）。"
                          "给了它就不调 git，用于无 VCS 或非 git 的环境")
+    ap.add_argument("--cleared", metavar="路径",
+                    help="已复核确认无需改动的文档清单（每行一个路径或 MOD/UC/ADR 的 ID，"
+                         "- 表示标准输入）。只抵扣「受影响但未同步」，不豁免「状态未回退」")
     ap.add_argument("--depth", type=int, default=1, help="关系传播跳数，默认 1")
     ap.add_argument("--format", choices=["text", "markdown"], default="text")
     ap.add_argument("--fail-on-unsynced", action="store_true",
                     help="存在未同步文档时以退出码 1 结束")
     args = ap.parse_args()
+
+    if args.changed_files == "-" and args.cleared == "-":
+        print("--changed-files 与 --cleared 不能同时从标准输入读", file=sys.stderr)
+        return 2
 
     if not os.path.isdir(args.dir):
         print(f"目录不存在: {args.dir}", file=sys.stderr)
@@ -160,7 +226,7 @@ def main() -> int:
     corpus = Corpus(args.dir)
 
     if args.changed_files:
-        changed_all = read_changed_files(args.changed_files)
+        changed_all = read_line_list(args.changed_files, "变更清单")
         source_label = f"清单 {args.changed_files}"
         # 清单模式不要求处于 git 仓库内，路径按文档目录自身解析
         doc_root = os.path.relpath(os.path.realpath(args.dir), os.path.realpath(args.repo))
@@ -269,6 +335,26 @@ def main() -> int:
             seen.add(rel)
             unique_unsynced.append((rel, reason))
 
+    # 复核销项：判定从二值（改了/没改）补成三值（改了/核过无需改/没核）。
+    # 没有这一格，让门禁闭嘴的唯一办法是给无需改动的文档空转版本号——那正好
+    # 腐蚀 C11 的进位判据（读者是否需要重读）。销项只抵扣「受影响但未同步」，
+    # 状态未回退豁免不了；销项也不跨变更集粘连，它是每次运行的输入。
+    cleared_hits: List[Tuple[str, str]] = []
+    cleared_notes: List[str] = []
+    if args.cleared:
+        cleared_set, cleared_notes = resolve_cleared(
+            corpus, read_line_list(args.cleared, "销项清单"), doc_root)
+        cleared_hits = [(rel, reason) for rel, reason in unique_unsynced
+                        if rel in cleared_set]
+        unique_unsynced = [(rel, reason) for rel, reason in unique_unsynced
+                           if rel not in cleared_set]
+        for rel in sorted(cleared_set - {r for r, _ in cleared_hits}):
+            if rel in changed_rel:
+                cleared_notes.append(f"「{rel}」已在本次变更集里，本就算已同步，无需销项")
+            else:
+                cleared_notes.append(f"「{rel}」不在本次受影响清单里"
+                                     f"（可能沿用了上一轮里程碑的销项清单）")
+
     # 状态未回退：正文改了，状态还挂在已评审／已冻结。
     #
     # 这是文档生命周期回路上唯一的自动强制点。正向路径（草稿→已评审→已冻结）
@@ -309,8 +395,24 @@ def main() -> int:
             lines.append("|------|----------|")
             for rel, reason in unique_unsynced:
                 lines.append(f"| `{rel}` | {reason} |")
+        elif cleared_hits:
+            lines.append("无。受影响文档均已同步更新或经复核销项。")
         else:
             lines.append("无。受影响文档均已在本次变更中同步更新。")
+        if cleared_hits:
+            lines.append("")
+            lines.append("### 已复核销项")
+            lines.append("")
+            lines.append("下列文档经人工复核确认无需改动（`--cleared` 清单），"
+                         "原影响原因保留备查：")
+            lines.append("")
+            lines.append("| 文档 | 原影响原因 |")
+            lines.append("|------|------------|")
+            for rel, reason in cleared_hits:
+                lines.append(f"| `{rel}` | {reason} |")
+        for note in cleared_notes:
+            lines.append("")
+            lines.append(f"> 销项清单提示: {note}")
         if stale_status:
             lines.append("")
             lines.append("### 状态未回退的文档")
@@ -341,8 +443,19 @@ def main() -> int:
             for rel, reason in unique_unsynced:
                 lines.append(f"  - {rel}")
                 lines.append(f"      {reason}")
+        elif cleared_hits:
+            lines.append("受影响文档均已同步更新或经复核销项。")
         else:
             lines.append("受影响文档均已同步更新。")
+        if cleared_hits:
+            lines.append("")
+            lines.append(f"已复核销项 ({len(cleared_hits)}):  --cleared 确认无需改动，"
+                         f"原影响原因保留备查")
+            for rel, reason in cleared_hits:
+                lines.append(f"  - {rel}")
+                lines.append(f"      {reason}")
+        for note in cleared_notes:
+            lines.append(f"  ! 销项清单: {note}")
         if stale_status:
             lines.append("")
             lines.append(f"状态未回退 ({len(stale_status)}):")

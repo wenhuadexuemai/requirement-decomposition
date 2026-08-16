@@ -15,6 +15,7 @@
 | 版本号各写各的 | C11 卡三段号 + 变更记录一致 |
 | 文档状态没人管 | C15 状态机 + `--snapshot` 基线门禁 |
 | 改了文档忘了退回草稿 | `impact_analysis` 状态未回退检测 |
+| 复核确认无需改动却要空转版本号 | `--cleared` 复核销项，门禁只拦真正的未同步 |
 
 ## 环境要求
 
@@ -49,6 +50,7 @@ python3 $S/validate_requirements.py ./需求文档 --only C04,C05  # 只跑指�
 ```bash
 python3 $S/manual_review_checklist.py ./需求文档          # 人工复核清单
 python3 $S/impact_analysis.py --dir ./需求文档 --base origin/main --fail-on-unsynced
+# 复核确认无需改动的受影响文档：--cleared 清单.txt（路径或 MOD/UC/ADR 的 ID）
 python3 $S/self_check.py                                   # 技能包内部契约自检
 python3 $S/validate_interview.py --print-example           # 访谈状态样例
 ```
@@ -73,7 +75,7 @@ python3 $S/validate_interview.py --print-example           # 访谈状态样例
 | `scaffold_docs.py` | 骨架 JSON -> 展开整套文档目录 |
 | `validate_requirements.py` | C01~C16 十六项一致性校验 + `--snapshot` 基线门禁 |
 | `validate_interview.py` | 第 2 轮访谈契约校验（fail closed） |
-| `impact_analysis.py` | 变更影响分析 + 状态未回退检测 |
+| `impact_analysis.py` | 变更影响分析 + 状态未回退检测 + 复核销项 |
 | `manual_review_checklist.py` | 列出脚本管不到、需人工过的复核项 |
 | `run_routing_evals.py` | 触发边界用例校验 |
 | `build_view.py` | 按视图配方把多个模块的指定章节拼成聚合视图 |
